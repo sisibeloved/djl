@@ -44,8 +44,11 @@ public class MxNDManager extends BaseNDManager {
 
     private static final NDArray[] EMPTY = new NDArray[0];
 
-    private MxNDManager(NDManager parent, Device device) {
+    private int version;
+
+    private MxNDManager(NDManager parent, Device device, int version) {
         super(parent, device);
+        this.version = version;
     }
 
     static MxNDManager getSystemManager() {
@@ -65,7 +68,10 @@ public class MxNDManager extends BaseNDManager {
      * @return the created array
      */
     public MxNDArray create(Pointer handle) {
-        return new MxNDArray(this, handle);
+        if (version >= 10700) {
+            return new MxNDArray(this, handle);
+        }
+        return new MxNDArray16(this, handle);
     }
 
     /**
@@ -83,7 +89,10 @@ public class MxNDManager extends BaseNDManager {
     @Override
     public MxNDArray create(Shape shape, DataType dataType) {
         Pointer handle = JnaUtils.createNdArray(device, shape, dataType, shape.dimension(), false);
-        return new MxNDArray(this, handle, device, shape, dataType, false);
+        if (version >= 10700) {
+            return new MxNDArray(this, handle, device, shape, dataType, false);
+        }
+        return new MxNDArray16(this, handle, device, shape, dataType, false);
     }
 
     /** {@inheritDoc} */
@@ -156,6 +165,7 @@ public class MxNDManager extends BaseNDManager {
         return fill("_npi_ones", shape, dataType);
     }
 
+    /** {@inheritDoc} */
     @Override
     public NDArray full(Shape shape, float value, DataType dataType) {
         MxOpParams params = new MxOpParams();
@@ -173,9 +183,7 @@ public class MxNDManager extends BaseNDManager {
         params.addParam("start", start);
         params.addParam("stop", stop);
         params.addParam("step", step);
-        if (dataType != DataType.UNKNOWN) {
-            params.setDataType(dataType);
-        }
+        params.setDataType(dataType);
         params.setDevice(device);
         return invoke("_npi_arange", params);
     }
@@ -209,15 +217,25 @@ public class MxNDManager extends BaseNDManager {
 
     /** {@inheritDoc} */
     @Override
+    public NDArray randomInteger(long low, long high, Shape shape, DataType dataType) {
+        MxOpParams params = new MxOpParams();
+        params.addParam("low", low);
+        params.addParam("high", high);
+        params.addParam("shape", shape);
+        params.setDevice(device);
+        params.setDataType(dataType);
+        return invoke("_npi_random_randint", params);
+    }
+
+    /** {@inheritDoc} */
+    @Override
     public NDArray randomUniform(float low, float high, Shape shape, DataType dataType) {
         MxOpParams params = new MxOpParams();
         params.addParam("low", low);
         params.addParam("high", high);
         params.addParam("size", shape);
         params.setDevice(device);
-        if (dataType != DataType.UNKNOWN) {
-            params.setDataType(dataType);
-        }
+        params.setDataType(dataType);
         return invoke("_npi_uniform", params);
     }
 
@@ -229,9 +247,7 @@ public class MxNDManager extends BaseNDManager {
         params.addParam("scale", scale);
         params.addParam("size", shape);
         params.setDevice(device);
-        if (dataType != DataType.UNKNOWN) {
-            params.setDataType(dataType);
-        }
+        params.setDataType(dataType);
         return invoke("_npi_normal", params);
     }
 
@@ -254,14 +270,8 @@ public class MxNDManager extends BaseNDManager {
 
     /** {@inheritDoc} */
     @Override
-    public MxNDManager newSubManager() {
-        return newSubManager(device);
-    }
-
-    /** {@inheritDoc} */
-    @Override
     public MxNDManager newSubManager(Device dev) {
-        MxNDManager manager = new MxNDManager(this, dev);
+        MxNDManager manager = new MxNDManager(this, dev, version);
         attach(manager.uid, manager);
         return manager;
     }
@@ -352,7 +362,7 @@ public class MxNDManager extends BaseNDManager {
 
     /** {@inheritDoc} */
     @Override
-    public Engine getEngine() {
+    public final Engine getEngine() {
         return Engine.getEngine(MxEngine.ENGINE_NAME);
     }
 
@@ -371,7 +381,7 @@ public class MxNDManager extends BaseNDManager {
     private static final class SystemManager extends MxNDManager {
 
         SystemManager() {
-            super(null, Device.defaultDevice());
+            super(null, null, JnaUtils.getVersion());
         }
 
         /** {@inheritDoc} */

@@ -1,12 +1,5 @@
 group "ai.djl.tensorflow"
 
-repositories {
-    jcenter()
-    maven {
-        url "https://oss.sonatype.org/content/repositories/snapshots/"
-    }
-}
-
 dependencies {
     api project(":api")
     api project(":tensorflow:tensorflow-api")
@@ -21,8 +14,8 @@ publishing {
     publications {
         maven(MavenPublication) {
             pom {
-                name = "TensorFlow Engine Adapter"
-                description = "TensorFlow Engine Adapter for DJL"
+                name = "DJL Engine Adapter for TensorFlow"
+                description = "Deep Java Library (DJL) Engine Adapter for TensorFlow"
                 url = "http://www.djl.ai/tensorflow/${project.name}"
             }
         }

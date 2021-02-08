@@ -13,6 +13,7 @@
 package ai.djl.basicdataset;
 
 import ai.djl.Model;
+import ai.djl.basicdataset.cv.classification.ImageFolder;
 import ai.djl.modality.cv.ImageFactory;
 import ai.djl.modality.cv.transform.Resize;
 import ai.djl.modality.cv.transform.ToTensor;
@@ -26,7 +27,7 @@ import ai.djl.training.DefaultTrainingConfig;
 import ai.djl.training.Trainer;
 import ai.djl.training.TrainingConfig;
 import ai.djl.training.dataset.Batch;
-import ai.djl.training.initializer.Initializer;
+import ai.djl.training.dataset.RandomAccessDataset;
 import ai.djl.training.loss.Loss;
 import ai.djl.translate.Pipeline;
 import ai.djl.translate.TranslateException;
@@ -43,9 +44,7 @@ public class ImageFolderTest {
     @Test
     public void testImageFolder() throws IOException, TranslateException {
         Repository repository = Repository.newInstance("test", "src/test/resources/imagefolder");
-        TrainingConfig config =
-                new DefaultTrainingConfig(Loss.softmaxCrossEntropyLoss())
-                        .optInitializer(Initializer.ONES);
+        TrainingConfig config = new DefaultTrainingConfig(Loss.softmaxCrossEntropyLoss());
 
         try (Model model = Model.newInstance("model")) {
             model.setBlock(Blocks.identityBlock());
@@ -88,7 +87,7 @@ public class ImageFolderTest {
                         catBatch.getData().singletonOrThrow(),
                         NDImageUtils.toTensor(NDImageUtils.resize(cat, 100, 100)).expandDims(0));
                 Assert.assertEquals(
-                        catBatch.getLabels().singletonOrThrow(), manager.create(new int[] {0}));
+                        catBatch.getLabels().singletonOrThrow(), manager.create(new long[] {0}));
                 catBatch.close();
 
                 Batch dogBatch = ds.next();
@@ -96,7 +95,7 @@ public class ImageFolderTest {
                         dogBatch.getData().singletonOrThrow(),
                         NDImageUtils.toTensor(NDImageUtils.resize(dog, 100, 100)).expandDims(0));
                 Assert.assertEquals(
-                        dogBatch.getLabels().singletonOrThrow(), manager.create(new int[] {1}));
+                        dogBatch.getLabels().singletonOrThrow(), manager.create(new long[] {1}));
                 dogBatch.close();
 
                 Batch pikachuBatch = ds.next();
@@ -105,9 +104,19 @@ public class ImageFolderTest {
                         NDImageUtils.toTensor(NDImageUtils.resize(pikachu, 100, 100))
                                 .expandDims(0));
                 Assert.assertEquals(
-                        pikachuBatch.getLabels().singletonOrThrow(), manager.create(new int[] {2}));
+                        pikachuBatch.getLabels().singletonOrThrow(),
+                        manager.create(new long[] {2}));
                 pikachuBatch.close();
             }
         }
+    }
+
+    @Test
+    public void testRandomSplit() throws IOException, TranslateException {
+        Repository repository = Repository.newInstance("test", "src/test/resources/imagefolder");
+        ImageFolder dataset =
+                ImageFolder.builder().setRepository(repository).setSampling(1, false).build();
+        RandomAccessDataset[] sets = dataset.randomSplit(75, 25);
+        Assert.assertEquals(sets[0].size(), 2);
     }
 }

@@ -15,12 +15,8 @@ package ai.djl.onnxruntime.engine;
 import ai.djl.BaseModel;
 import ai.djl.MalformedModelException;
 import ai.djl.Model;
-import ai.djl.inference.Predictor;
 import ai.djl.ndarray.NDManager;
 import ai.djl.ndarray.types.DataType;
-import ai.djl.training.Trainer;
-import ai.djl.training.TrainingConfig;
-import ai.djl.translate.Translator;
 import ai.onnxruntime.OrtEnvironment;
 import ai.onnxruntime.OrtException;
 import java.io.FileNotFoundException;
@@ -49,18 +45,16 @@ public class OrtModel extends BaseModel {
     OrtModel(String name, NDManager manager, OrtEnvironment env) {
         super(name);
         this.manager = manager;
+        this.manager.setName("ortModel");
         this.env = env;
         dataType = DataType.FLOAT32;
     }
 
     /** {@inheritDoc} */
     @Override
-    public void load(Path modelPath, String prefix, Map<String, Object> options)
+    public void load(Path modelPath, String prefix, Map<String, ?> options)
             throws IOException, MalformedModelException {
         modelDir = modelPath.toAbsolutePath();
-        if (prefix == null) {
-            prefix = modelName;
-        }
         if (block != null) {
             throw new UnsupportedOperationException("ONNX Runtime does not support dynamic blocks");
         }
@@ -80,6 +74,20 @@ public class OrtModel extends BaseModel {
     }
 
     private Path findModelFile(String prefix) {
+        if (Files.isRegularFile(modelDir)) {
+            Path file = modelDir;
+            modelDir = modelDir.getParent();
+            String fileName = file.toFile().getName();
+            if (fileName.endsWith(".onnx")) {
+                modelName = fileName.substring(0, fileName.length() - 5);
+            } else {
+                modelName = fileName;
+            }
+            return file;
+        }
+        if (prefix == null) {
+            prefix = modelName;
+        }
         Path modelFile = modelDir.resolve(prefix);
         if (Files.notExists(modelFile) || !Files.isRegularFile(modelFile)) {
             if (prefix.endsWith(".onnx")) {
@@ -95,31 +103,8 @@ public class OrtModel extends BaseModel {
 
     /** {@inheritDoc} */
     @Override
-    public Trainer newTrainer(TrainingConfig trainingConfig) {
-        throw new UnsupportedOperationException("Not supported for ONNX Runtime");
-    }
-
-    /** {@inheritDoc} */
-    @Override
-    public <I, O> Predictor<I, O> newPredictor(Translator<I, O> translator) {
-        return new Predictor<>(this, translator, false);
-    }
-
-    /** {@inheritDoc} */
-    @Override
-    public String[] getArtifactNames() {
-        return new String[0];
-    }
-
-    /** {@inheritDoc} */
-    @Override
-    public void cast(DataType dataType) {
-        throw new UnsupportedOperationException("Not supported for ONNX Runtime");
-    }
-
-    /** {@inheritDoc} */
-    @Override
     public void close() {
-        manager.close();
+        ((OrtSymbolBlock) block).close();
+        super.close();
     }
 }

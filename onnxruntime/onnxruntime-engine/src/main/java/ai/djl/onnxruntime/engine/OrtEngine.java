@@ -31,7 +31,7 @@ public final class OrtEngine extends Engine {
 
     public static final String ENGINE_NAME = "OnnxRuntime";
 
-    private Engine secondaryEngine;
+    private Engine alternativeEngine;
     private OrtEnvironment env;
 
     private OrtEngine() {
@@ -49,22 +49,27 @@ public final class OrtEngine extends Engine {
         return ENGINE_NAME;
     }
 
-    Engine getSecondEngine() {
-        if (secondaryEngine == null) {
-            for (Engine availableEngine : Engine.getAllEngines()) {
-                if (!ENGINE_NAME.equals(availableEngine.getEngineName())) {
-                    secondaryEngine = availableEngine;
-                    break;
-                }
+    /** {@inheritDoc} */
+    @Override
+    public int getRank() {
+        return 10;
+    }
+
+    private Engine getAlternativeEngine() {
+        if (alternativeEngine == null) {
+            Engine engine = Engine.getInstance();
+            if (engine.getRank() < getRank()) {
+                // alternativeEngine should not have the same rank as ORT
+                alternativeEngine = engine;
             }
         }
-        return secondaryEngine;
+        return alternativeEngine;
     }
 
     /** {@inheritDoc} */
     @Override
     public String getVersion() {
-        return "1.3.0";
+        return "1.5.2";
     }
 
     /** {@inheritDoc} */
@@ -89,8 +94,8 @@ public final class OrtEngine extends Engine {
     /** {@inheritDoc} */
     @Override
     public NDManager newBaseManager(Device device) {
-        if (getSecondEngine() != null) {
-            return secondaryEngine.newBaseManager(device);
+        if (getAlternativeEngine() != null) {
+            return alternativeEngine.newBaseManager(device);
         }
         return OrtNDManager.getSystemManager().newSubManager(device);
     }
@@ -105,5 +110,18 @@ public final class OrtEngine extends Engine {
     @Override
     public void setRandomSeed(int seed) {
         throw new UnsupportedOperationException("Not supported for ONNX Runtime");
+    }
+
+    /** {@inheritDoc} */
+    @Override
+    public String toString() {
+        StringBuilder sb = new StringBuilder(200);
+        sb.append(getEngineName()).append(':').append(getVersion()).append(", ");
+        if (alternativeEngine != null) {
+            sb.append("Alternative engine: ").append(alternativeEngine.getEngineName());
+        } else {
+            sb.append("No alternative engine found");
+        }
+        return sb.toString();
     }
 }

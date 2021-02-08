@@ -42,7 +42,7 @@ multiple GPUs with the appropriate arguments. Follow the steps in the example to
 ### 5. Does DJL support inference on multiple threads?
 Yes. DJL offers multi-threaded inference. If using the MXNet engine for a multi-threaded inference case, you need to 
 specify the 'MXNET_ENGINE_TYPE' environment variable to 'NaiveEngine'. For more information, see the
-[Multi-threaded inference example](../examples/docs/multithread_inference.md).
+[inference_performance_optimization](development/inference_performance_optimization.md).
 
 ### 6. Does DJL support distributed training?
 DJL does not currently support distributed training.
@@ -63,7 +63,7 @@ While DJL is designed to be engine-agnostic, here is a list of the DJL engines a
     - .pb format
     - Keras model - DJL only supports the [SavedModel API](https://www.tensorflow.org/guide/keras/save_and_serialize). The .h5 format is currently not supported
 - ONNX Model
-   - .onnx format
+    - .onnx format
 - fastText
     - .bin format
     - .ftz format

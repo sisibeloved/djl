@@ -15,14 +15,16 @@ package ai.djl.tensorflow.engine;
 import ai.djl.Device;
 import ai.djl.Model;
 import ai.djl.engine.Engine;
+import ai.djl.engine.EngineException;
 import ai.djl.engine.StandardCapabilities;
 import ai.djl.ndarray.NDManager;
 import ai.djl.training.GradientCollector;
-import ai.djl.util.Platform;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import ai.djl.util.RandomUtils;
 import org.tensorflow.EagerSession;
 import org.tensorflow.TensorFlow;
+import org.tensorflow.internal.c_api.TF_DeviceList;
+import org.tensorflow.internal.c_api.TF_Status;
+import org.tensorflow.internal.c_api.global.tensorflow;
 
 /**
  * The {@code TfEngine} is an implementation of the {@link Engine} based on the <a
@@ -32,8 +34,6 @@ import org.tensorflow.TensorFlow;
  * Engine#getEngine(String)} with the Engine name "TensorFlow".
  */
 public final class TfEngine extends Engine {
-
-    private static final Logger logger = LoggerFactory.getLogger(TfEngine.class);
 
     public static final String ENGINE_NAME = "TensorFlow";
 
@@ -45,10 +45,9 @@ public final class TfEngine extends Engine {
             EagerSession.getDefault();
 
             return new TfEngine();
-        } catch (Throwable e) {
-            logger.warn("Failed load TensorFlow native library.", e);
+        } catch (Throwable t) {
+            throw new EngineException("Failed to load TensorFlow native library", t);
         }
-        return null;
     }
 
     /** {@inheritDoc} */
@@ -65,6 +64,12 @@ public final class TfEngine extends Engine {
 
     /** {@inheritDoc} */
     @Override
+    public int getRank() {
+        return 3;
+    }
+
+    /** {@inheritDoc} */
+    @Override
     public String getVersion() {
         return TensorFlow.version();
     }
@@ -75,7 +80,21 @@ public final class TfEngine extends Engine {
         if (StandardCapabilities.MKL.equals(capability)) {
             return true;
         } else if (StandardCapabilities.CUDA.equals(capability)) {
-            return Platform.fromSystem().getCudaArch() != null;
+            TF_Status status = tensorflow.TF_NewStatus();
+            TF_DeviceList deviceList =
+                    tensorflow.TFE_ContextListDevices(
+                            tensorflow.TFE_NewContext(tensorflow.TFE_NewContextOptions(), status),
+                            status);
+            int deviceCount = tensorflow.TF_DeviceListCount(deviceList);
+            for (int i = 0; i < deviceCount; i++) {
+                if (tensorflow.TF_DeviceListName(deviceList, i, status)
+                        .getString()
+                        .toLowerCase()
+                        .contains("gpu")) {
+                    return true;
+                }
+            }
+            return false;
         }
         return false;
     }
@@ -102,5 +121,21 @@ public final class TfEngine extends Engine {
     @Override
     public void setRandomSeed(int seed) {
         TfNDManager.setRandomSeed(seed);
+        RandomUtils.RANDOM.setSeed(seed);
+    }
+
+    /** {@inheritDoc} */
+    @Override
+    public String toString() {
+        StringBuilder sb = new StringBuilder(200);
+        sb.append(getEngineName())
+                .append(':')
+                .append(getVersion())
+                .append(", capabilities: [\n\t" + StandardCapabilities.MKL + ",\n");
+        if (hasCapability(StandardCapabilities.CUDA)) {
+            sb.append("\t").append(StandardCapabilities.CUDA).append(",\n"); // NOPMD
+        }
+        sb.append("]\nTensorFlow Library: ").append(LibUtils.getLibName());
+        return sb.toString();
     }
 }

@@ -20,6 +20,7 @@ import ai.djl.ndarray.types.Shape;
 import ai.djl.testing.Assertions;
 import ai.djl.training.dataset.Batch;
 import ai.djl.translate.Batchifier;
+import java.util.Locale;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
@@ -34,12 +35,14 @@ public class DatasetUtilsTest {
             NDArray label = manager.zeros(new Shape(6, 1));
             Batch batch =
                     new Batch(
-                            manager,
+                            manager.newSubManager(),
                             new NDList(data),
                             new NDList(label),
                             6,
                             Batchifier.STACK,
-                            Batchifier.STACK);
+                            Batchifier.STACK,
+                            0,
+                            0);
 
             Batch[] split = batch.split(devices, true);
 
@@ -50,10 +53,8 @@ public class DatasetUtilsTest {
                 NDArray array = split[i].getData().singletonOrThrow();
                 Assert.assertEquals(array.getDevice(), devices[i]);
 
-                Assert.assertEquals(
-                        data.get(String.format("%d:%d", i * step, (i + 1) * step))
-                                .toDevice(devices[i], true),
-                        array);
+                String ndIndex = String.format(Locale.ENGLISH, "%d:%d", i * step, (i + 1) * step);
+                Assert.assertEquals(data.get(ndIndex).toDevice(devices[i], true), array);
             }
         }
     }
@@ -67,12 +68,14 @@ public class DatasetUtilsTest {
             NDArray label = manager.zeros(new Shape(7, 1));
             Batch batch =
                     new Batch(
-                            manager,
+                            manager.newSubManager(),
                             new NDList(data),
                             new NDList(label),
                             7,
                             Batchifier.STACK,
-                            Batchifier.STACK);
+                            Batchifier.STACK,
+                            0,
+                            0);
 
             Batch[] split = batch.split(devices, false);
 
@@ -83,16 +86,12 @@ public class DatasetUtilsTest {
                 NDArray array = split[i].getData().singletonOrThrow();
                 Assert.assertEquals(array.getDevice(), devices[i]);
                 if (i == split.length - 1) {
-                    Assert.assertEquals(
-                            data.get(String.format("%d:%d", i * step, data.size(0)))
-                                    .toDevice(devices[i], true),
-                            array);
+                    String indices = String.format(Locale.ENGLISH, "%d:%d", i * step, data.size(0));
+                    Assert.assertEquals(data.get(indices).toDevice(devices[i], true), array);
                     return;
                 }
-                Assert.assertEquals(
-                        data.get(String.format("%d:%d", i * step, (i + 1) * step))
-                                .toDevice(devices[i], true),
-                        array);
+                String indices = String.format(Locale.ENGLISH, "%d:%d", i * step, (i + 1) * step);
+                Assert.assertEquals(data.get(indices).toDevice(devices[i], true), array);
             }
         }
     }
@@ -106,12 +105,14 @@ public class DatasetUtilsTest {
             NDArray label = manager.zeros(new Shape(7, 1));
             Batch batch =
                     new Batch(
-                            manager,
+                            manager.newSubManager(),
                             new NDList(data),
                             new NDList(label),
                             7,
                             Batchifier.STACK,
-                            Batchifier.STACK);
+                            Batchifier.STACK,
+                            0,
+                            0);
 
             Batch[] split = batch.split(devices, false);
 
@@ -122,16 +123,12 @@ public class DatasetUtilsTest {
                 NDArray array = split[i].getData().singletonOrThrow();
                 Assert.assertEquals(array.getDevice(), devices[i]);
                 if (i == split.length - 1) {
-                    Assert.assertEquals(
-                            data.get(String.format("%d:%d", i * step, data.size(0)))
-                                    .toDevice(devices[i], true),
-                            array);
+                    String indices = String.format(Locale.ENGLISH, "%d:%d", i * step, data.size(0));
+                    Assert.assertEquals(data.get(indices).toDevice(devices[i], true), array);
                     return;
                 }
-                Assert.assertEquals(
-                        data.get(String.format("%d:%d", i * step, (i + 1) * step))
-                                .toDevice(devices[i], true),
-                        array);
+                String indices = String.format(Locale.ENGLISH, "%d:%d", i * step, (i + 1) * step);
+                Assert.assertEquals(data.get(indices).toDevice(devices[i], true), array);
             }
         }
     }

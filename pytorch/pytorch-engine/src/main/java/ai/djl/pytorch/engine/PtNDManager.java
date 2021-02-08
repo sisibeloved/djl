@@ -16,14 +16,11 @@ import ai.djl.Device;
 import ai.djl.engine.Engine;
 import ai.djl.ndarray.BaseNDManager;
 import ai.djl.ndarray.NDArray;
-import ai.djl.ndarray.NDList;
 import ai.djl.ndarray.NDManager;
 import ai.djl.ndarray.types.DataType;
 import ai.djl.ndarray.types.Shape;
 import ai.djl.ndarray.types.SparseFormat;
 import ai.djl.pytorch.jni.JniUtils;
-import ai.djl.pytorch.jni.Pointer;
-import ai.djl.util.PairList;
 import java.nio.Buffer;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
@@ -31,7 +28,6 @@ import java.nio.DoubleBuffer;
 import java.nio.FloatBuffer;
 import java.nio.IntBuffer;
 import java.nio.LongBuffer;
-import java.nio.file.Path;
 
 /** {@code PtNDManager} is the PyTorch implementation of {@link NDManager}. */
 public class PtNDManager extends BaseNDManager {
@@ -50,17 +46,6 @@ public class PtNDManager extends BaseNDManager {
     @Override
     public ByteBuffer allocateDirect(int capacity) {
         return ByteBuffer.allocateDirect(capacity).order(ByteOrder.nativeOrder());
-    }
-
-    /**
-     * Creates an {@link PtNDArray} with the given Native Memory Pointer and attaches to this
-     * manager.
-     *
-     * @param handle the array's native memory pointer
-     * @return the created array
-     */
-    public PtNDArray create(Pointer handle) {
-        return new PtNDArray(this, handle);
     }
 
     /** {@inheritDoc} */
@@ -105,26 +90,20 @@ public class PtNDManager extends BaseNDManager {
             default:
                 throw new AssertionError("Show never happen");
         }
+        buf.rewind();
         return JniUtils.createNdFromByteBuffer(
                 this, buf, shape, dataType, SparseFormat.DENSE, device);
     }
 
     /** {@inheritDoc} */
     @Override
-    public NDArray createCSR(Buffer data, long[] indptr, long[] indices, Shape shape) {
-        throw new UnsupportedOperationException("Not implemented");
-    }
-
-    /** {@inheritDoc} */
-    @Override
-    public NDArray createRowSparse(Buffer data, Shape dataShape, long[] indices, Shape shape) {
-        throw new UnsupportedOperationException("Not implemented");
-    }
-
-    /** {@inheritDoc} */
-    @Override
-    public NDList load(Path path) {
-        throw new UnsupportedOperationException("Not implemented");
+    public NDArray createCoo(Buffer data, long[][] indices, Shape shape) {
+        // length should be the same as indices dim 1
+        try (NDArray valueNd = create(data, new Shape(indices[0].length))) {
+            try (NDArray indicesNd = create(indices)) {
+                return JniUtils.createSparseCoo((PtNDArray) indicesNd, (PtNDArray) valueNd, shape);
+            }
+        }
     }
 
     /** {@inheritDoc} */
@@ -182,6 +161,12 @@ public class PtNDManager extends BaseNDManager {
 
     /** {@inheritDoc} */
     @Override
+    public NDArray randomInteger(long low, long high, Shape shape, DataType dataType) {
+        return JniUtils.randint(this, low, high, shape, dataType, device);
+    }
+
+    /** {@inheritDoc} */
+    @Override
     public NDArray randomUniform(float low, float high, Shape shape, DataType dataType) {
         return JniUtils.uniform(this, low, high, shape, dataType, device);
     }
@@ -194,24 +179,6 @@ public class PtNDManager extends BaseNDManager {
 
     /** {@inheritDoc} */
     @Override
-    public NDArray randomMultinomial(int n, NDArray pValues) {
-        throw new UnsupportedOperationException("Not implemented");
-    }
-
-    /** {@inheritDoc} */
-    @Override
-    public NDArray randomMultinomial(int n, NDArray pValues, Shape shape) {
-        throw new UnsupportedOperationException("Not implemented");
-    }
-
-    /** {@inheritDoc} */
-    @Override
-    public PtNDManager newSubManager() {
-        return newSubManager(device);
-    }
-
-    /** {@inheritDoc} */
-    @Override
     public PtNDManager newSubManager(Device device) {
         PtNDManager manager = new PtNDManager(this, device);
         attach(manager.uid, manager);
@@ -220,20 +187,7 @@ public class PtNDManager extends BaseNDManager {
 
     /** {@inheritDoc} */
     @Override
-    public void invoke(
-            String operation, NDArray[] src, NDArray[] dest, PairList<String, ?> params) {
-        throw new UnsupportedOperationException("Not implemented");
-    }
-
-    /** {@inheritDoc} */
-    @Override
-    public NDList invoke(String operation, NDList src, PairList<String, ?> params) {
-        throw new UnsupportedOperationException("Not implemented");
-    }
-
-    /** {@inheritDoc} */
-    @Override
-    public Engine getEngine() {
+    public final Engine getEngine() {
         return Engine.getEngine(PtEngine.ENGINE_NAME);
     }
 
@@ -241,7 +195,7 @@ public class PtNDManager extends BaseNDManager {
     private static final class SystemManager extends PtNDManager {
 
         SystemManager() {
-            super(null, Device.defaultDevice());
+            super(null, null);
         }
 
         /** {@inheritDoc} */

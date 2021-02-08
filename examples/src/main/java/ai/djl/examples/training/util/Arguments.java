@@ -13,12 +13,13 @@
 package ai.djl.examples.training.util;
 
 import ai.djl.Device;
-import com.google.gson.Gson;
+import ai.djl.util.JsonUtils;
 import com.google.gson.reflect.TypeToken;
 import java.lang.reflect.Type;
 import java.util.Map;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.DefaultParser;
+import org.apache.commons.cli.HelpFormatter;
 import org.apache.commons.cli.Option;
 import org.apache.commons.cli.Options;
 import org.apache.commons.cli.ParseException;
@@ -70,19 +71,30 @@ public class Arguments {
         }
         if (cmd.hasOption("criteria")) {
             Type type = new TypeToken<Map<String, Object>>() {}.getType();
-            criteria = new Gson().fromJson(cmd.getOptionValue("criteria"), type);
+            criteria = JsonUtils.GSON.fromJson(cmd.getOptionValue("criteria"), type);
         }
     }
 
-    public static Arguments parseArgs(String[] args) throws ParseException {
+    public static Arguments parseArgs(String[] args) {
         Options options = Arguments.getOptions();
-        DefaultParser parser = new DefaultParser();
-        CommandLine cmd = parser.parse(options, args, null, false);
-        return new Arguments(cmd);
+        try {
+            DefaultParser parser = new DefaultParser();
+            CommandLine cmd = parser.parse(options, args, null, false);
+            if (cmd.hasOption("help")) {
+                printHelp("./gradlew run --args='[OPTIONS]'", options);
+                return null;
+            }
+            return new Arguments(cmd);
+        } catch (ParseException e) {
+            printHelp("./gradlew run --args='[OPTIONS]'", options);
+        }
+        return null;
     }
 
     public static Options getOptions() {
         Options options = new Options();
+        options.addOption(
+                Option.builder("h").longOpt("help").hasArg(false).desc("Print this help.").build());
         options.addOption(
                 Option.builder("e")
                         .longOpt("epoch")
@@ -182,5 +194,12 @@ public class Arguments {
 
     public Map<String, String> getCriteria() {
         return criteria;
+    }
+
+    private static void printHelp(String msg, Options options) {
+        HelpFormatter formatter = new HelpFormatter();
+        formatter.setLeftPadding(1);
+        formatter.setWidth(120);
+        formatter.printHelp(msg, options);
     }
 }

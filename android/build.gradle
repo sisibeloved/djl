@@ -1,6 +1,9 @@
 buildscript {
 
     repositories {
+        maven {
+            url "https://mlrepo.djl.ai/maven/"
+        }
         google()
         jcenter()
     }
@@ -13,7 +16,7 @@ buildscript {
 allprojects {
     group 'ai.djl.android'
     boolean isRelease = project.hasProperty("release") || project.hasProperty("staging")
-    version = "0.6.0" + (isRelease ? "" : "-SNAPSHOT")
+    version = djl_version + (isRelease ? "" : "-SNAPSHOT")
 
     repositories {
         google()

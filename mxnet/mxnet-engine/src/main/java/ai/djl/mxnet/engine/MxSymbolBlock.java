@@ -15,10 +15,11 @@ package ai.djl.mxnet.engine;
 
 import ai.djl.MalformedModelException;
 import ai.djl.mxnet.jna.JnaUtils;
+import ai.djl.ndarray.NDArray;
 import ai.djl.ndarray.NDList;
 import ai.djl.ndarray.NDManager;
 import ai.djl.ndarray.types.Shape;
-import ai.djl.nn.AbstractBlock;
+import ai.djl.nn.AbstractSymbolBlock;
 import ai.djl.nn.Parameter;
 import ai.djl.nn.ParameterType;
 import ai.djl.nn.SymbolBlock;
@@ -33,6 +34,8 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * {@code MxSymbolBlock} is the MXNet implementation of {@link SymbolBlock}.
@@ -40,7 +43,9 @@ import java.util.Set;
  * <p>You can create a {@code MxSymbolBlock} using {@link ai.djl.Model#load(java.nio.file.Path,
  * String)}.
  */
-public class MxSymbolBlock extends AbstractBlock implements SymbolBlock {
+public class MxSymbolBlock extends AbstractSymbolBlock {
+
+    private static final Logger logger = LoggerFactory.getLogger(MxSymbolBlock.class);
 
     private static final byte VERSION = 2;
 
@@ -50,6 +55,9 @@ public class MxSymbolBlock extends AbstractBlock implements SymbolBlock {
     private List<Parameter> mxNetParams; // includes input data
     private Map<String, Shape> paramShapes;
     private Shape[] outputShapes;
+    private PairList<String, Shape> inputDescriptions;
+    private PairList<String, Shape> outputDescriptions;
+    private boolean first;
 
     /**
      * Constructs a {@code MxSymbolBlock} for a {@link Symbol}.
@@ -75,6 +83,7 @@ public class MxSymbolBlock extends AbstractBlock implements SymbolBlock {
             boolean requireGrad = !auxNameSet.contains(name);
             mxNetParams.add(new Parameter(name, this, type, requireGrad));
         }
+        first = true;
     }
 
     /**
@@ -121,28 +130,73 @@ public class MxSymbolBlock extends AbstractBlock implements SymbolBlock {
         return symbol;
     }
 
-    /** {@inheritDoc} */
-    @Override
-    public PairList<String, Shape> describeInput() {
-        PairList<String, Shape> inputData = new PairList<>();
-        for (String name : inputNames) {
-            // TODO: Save pre-trained input data shape
-            inputData.add(name, new Shape());
-        }
-        return inputData;
+    /**
+     * Applies Optimization algorithm for the model.
+     *
+     * @param optimization the name of the optimization
+     */
+    public void optimizeFor(String optimization) {
+        Symbol newSymbol = symbol.optimizeFor(optimization, manager.getDevice());
+        symbol.close();
+        symbol = newSymbol;
     }
 
     /** {@inheritDoc} */
     @Override
-    public NDList forward(
+    public PairList<String, Shape> describeInput() {
+        if (inputDescriptions == null) {
+            inputDescriptions = new PairList<>();
+            for (String name : inputNames) {
+                // Add empty shapes as input shapes are not saved
+                // in MXNet models
+                logger.warn(
+                        "Input shapes are unknown, please run predict or forward once"
+                                + "and call describeInput again.");
+                inputDescriptions.add(name, new Shape());
+            }
+        }
+        return inputDescriptions;
+    }
+
+    /** {@inheritDoc} */
+    @Override
+    public PairList<String, Shape> describeOutput() {
+        if (outputDescriptions == null) {
+            logger.warn(
+                    "Output shapes are unknown, please run predict or forward once"
+                            + "and call describeOutput again.");
+        }
+        return outputDescriptions;
+    }
+
+    /** {@inheritDoc} */
+    @Override
+    protected NDList forwardInternal(
             ParameterStore parameterStore,
             NDList inputs,
             boolean training,
             PairList<String, Object> params) {
-        if (op == null) {
-            op = JnaUtils.createCachedOp(this, (MxNDManager) manager);
+        if (first) {
+            synchronized (MxSymbolBlock.class) {
+                if (first) {
+                    // create CachedOp is not thread-safe
+                    // add synchronized block to avoid creating multiple CachedOps
+                    op = JnaUtils.createCachedOp(this, (MxNDManager) manager, training);
+                    inputDescriptions = new PairList<>();
+                    outputDescriptions = new PairList<>();
+                    for (NDArray array : inputs) {
+                        inputDescriptions.add(array.getName(), array.getShape());
+                    }
+                    NDList outputs = op.forward(parameterStore, inputs, training);
+                    for (NDArray array : outputs) {
+                        outputDescriptions.add(array.getName(), array.getShape());
+                    }
+                    first = false;
+                    return outputs;
+                }
+            }
         }
-        return op.forward(parameterStore, inputs);
+        return op.forward(parameterStore, inputs, training);
     }
 
     /** {@inheritDoc} */

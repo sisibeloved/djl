@@ -17,6 +17,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 import java.util.zip.ZipOutputStream;
@@ -38,6 +39,9 @@ public final class ZipUtils {
         ZipEntry entry;
         while ((entry = zis.getNextEntry()) != null) {
             String name = entry.getName();
+            if (name.contains("..")) {
+                throw new IOException("Malicious zip entry: " + name);
+            }
             Path file = dest.resolve(name).toAbsolutePath();
             if (entry.isDirectory()) {
                 Files.createDirectories(file);
@@ -48,7 +52,7 @@ public final class ZipUtils {
                             "Parent path should never be null: " + file.toString());
                 }
                 Files.createDirectories(parentFile);
-                Files.copy(zis, file);
+                Files.copy(zis, file, StandardCopyOption.REPLACE_EXISTING);
             }
         }
     }

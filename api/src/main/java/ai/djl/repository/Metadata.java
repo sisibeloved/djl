@@ -36,12 +36,13 @@ import java.util.stream.Collectors;
 public class Metadata {
 
     private String metadataVersion;
+    private String resourceType;
+    private String application;
     protected String groupId;
     protected String artifactId;
     private String name;
     private String description;
     private String website;
-    private String application;
     protected Map<String, License> licenses;
     protected List<Artifact> artifacts;
     private Date lastUpdated;
@@ -80,6 +81,24 @@ public class Metadata {
      */
     public void setMetadataVersion(String metadataVersion) {
         this.metadataVersion = metadataVersion;
+    }
+
+    /**
+     * Returns the resource type.
+     *
+     * @return the resource type
+     */
+    public String getResourceType() {
+        return resourceType;
+    }
+
+    /**
+     * Returns the resource type.
+     *
+     * @param resourceType the resource type
+     */
+    public void setResourceType(String resourceType) {
+        this.resourceType = resourceType;
     }
 
     /**
@@ -178,16 +197,10 @@ public class Metadata {
      * @return the {@link Application}
      */
     public Application getApplication() {
+        if (applicationClass == null && application != null) {
+            applicationClass = Application.of(application);
+        }
         return applicationClass;
-    }
-
-    /**
-     * Returns the {@link Application} name.
-     *
-     * @return the {@link Application} name
-     */
-    public String getApplicationName() {
-        return application;
     }
 
     /**
@@ -198,6 +211,15 @@ public class Metadata {
     public void setApplication(Application application) {
         this.applicationClass = application;
         this.application = application.getPath();
+    }
+
+    /**
+     * Returns the {@link Application} name.
+     *
+     * @return the {@link Application} name
+     */
+    public String getApplicationName() {
+        return application;
     }
 
     /**

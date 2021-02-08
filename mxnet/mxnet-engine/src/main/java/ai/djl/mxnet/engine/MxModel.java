@@ -16,7 +16,6 @@ import ai.djl.BaseModel;
 import ai.djl.Device;
 import ai.djl.MalformedModelException;
 import ai.djl.Model;
-import ai.djl.inference.Predictor;
 import ai.djl.mxnet.jna.JnaUtils;
 import ai.djl.ndarray.NDArray;
 import ai.djl.ndarray.NDList;
@@ -25,7 +24,6 @@ import ai.djl.nn.Parameter;
 import ai.djl.training.Trainer;
 import ai.djl.training.TrainingConfig;
 import ai.djl.training.initializer.Initializer;
-import ai.djl.translate.Translator;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -35,7 +33,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -50,8 +47,6 @@ import org.slf4j.LoggerFactory;
 public class MxModel extends BaseModel {
 
     private static final Logger logger = LoggerFactory.getLogger(MxModel.class);
-    // the variable is used to avoid ParameterStore copy for the first time
-    private AtomicBoolean first;
 
     /**
      * Constructs a new Model on a given device.
@@ -61,11 +56,10 @@ public class MxModel extends BaseModel {
      */
     MxModel(String name, Device device) {
         super(name);
-        device = Device.defaultIfNull(device);
         dataType = DataType.FLOAT32;
         properties = new ConcurrentHashMap<>();
         manager = MxNDManager.getSystemManager().newSubManager(device);
-        first = new AtomicBoolean(true);
+        manager.setName("mxModel");
     }
 
     /**
@@ -87,7 +81,7 @@ public class MxModel extends BaseModel {
      * @throws IOException Exception for file loading
      */
     @Override
-    public void load(Path modelPath, String prefix, Map<String, Object> options)
+    public void load(Path modelPath, String prefix, Map<String, ?> options)
             throws IOException, MalformedModelException {
         modelDir = modelPath.toAbsolutePath();
         if (prefix == null) {
@@ -98,7 +92,8 @@ public class MxModel extends BaseModel {
             prefix = modelDir.toFile().getName();
             paramFile = paramPathResolver(prefix, options);
             if (paramFile == null) {
-                throw new IOException("Parameter file not found in: " + modelDir);
+                throw new FileNotFoundException(
+                        "Parameter file with prefix: " + prefix + " not found in: " + modelDir);
             }
         }
 
@@ -118,6 +113,10 @@ public class MxModel extends BaseModel {
         }
         loadParameters(paramFile, options);
         // TODO: Check if Symbol has all names that params file have
+        if (options != null && options.containsKey("MxOptimizeFor")) {
+            String optimization = (String) options.get("MxOptimizeFor");
+            ((MxSymbolBlock) block).optimizeFor(optimization);
+        }
     }
 
     /** {@inheritDoc} */
@@ -131,20 +130,6 @@ public class MxModel extends BaseModel {
         block.setInitializer(initializer);
 
         return new Trainer(this, trainingConfig);
-    }
-
-    /** {@inheritDoc} */
-    @Override
-    public <I, O> Predictor<I, O> newPredictor(Translator<I, O> translator) {
-        boolean firstPredictor = first.getAndSet(false);
-        boolean shouldCopyParameters = !JnaUtils.useThreadSafePredictor() && !firstPredictor;
-        return new Predictor<>(this, translator, shouldCopyParameters);
-    }
-
-    /** {@inheritDoc} */
-    @Override
-    public void cast(DataType dataType) {
-        throw new UnsupportedOperationException("Not implemented yet.");
     }
 
     /** {@inheritDoc} */
@@ -174,11 +159,11 @@ public class MxModel extends BaseModel {
     public void close() {
         // TODO workaround for MXNet Engine crash issue
         JnaUtils.waitAll();
-        manager.close();
+        super.close();
     }
 
     @SuppressWarnings("PMD.UseConcurrentHashMap")
-    private void loadParameters(Path paramFile, Map<String, Object> options)
+    private void loadParameters(Path paramFile, Map<String, ?> options)
             throws IOException, MalformedModelException {
         if (readParameters(paramFile, options)) {
             return;

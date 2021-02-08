@@ -235,6 +235,15 @@ public interface NDManager extends AutoCloseable {
     }
 
     /**
+     * Creates and initializes a scalar {@link NDArray}. NDArray of String DataType only supports
+     * scalar.
+     *
+     * @param data the String data that needs to be set
+     * @return a new instance of {@link NDArray}
+     */
+    NDArray create(String data);
+
+    /**
      * Creates and initializes a 1D {@link NDArray}.
      *
      * @param data the float array that needs to be set
@@ -576,6 +585,16 @@ public interface NDManager extends AutoCloseable {
     NDArray createRowSparse(Buffer data, Shape dataShape, long[] indices, Shape shape);
 
     /**
+     * Creates a Coordinate Format (COO) Matrix.
+     *
+     * @param data the data to set for the Coordinate format {@link NDArray}
+     * @param indices the matrix represent indices
+     * @param shape the {@link Shape} of the {@link NDArray}
+     * @return a new instance of {@link NDArray}
+     */
+    NDArray createCoo(Buffer data, long[][] indices, Shape shape);
+
+    /**
      * Decodes {@link NDArray} through byte array.
      *
      * @param bytes byte array to load from
@@ -621,6 +640,20 @@ public interface NDManager extends AutoCloseable {
         }
         return newSubManager(device).load(path);
     }
+
+    /**
+     * Sets the name for the NDManager.
+     *
+     * @param name the name assigned to the manager
+     */
+    void setName(String name);
+
+    /**
+     * Gets the name of the NDManager.
+     *
+     * @return name
+     */
+    String getName();
 
     /**
      * Creates an instance of {@link NDArray} with specified {@link Shape} filled with zeros.
@@ -1043,6 +1076,17 @@ public interface NDManager extends AutoCloseable {
     }
 
     /**
+     * Returns random integer values from low (inclusive) to high (exclusive).
+     *
+     * @param low Lowest (signed) longs to be drawn from the distribution
+     * @param high one above the largest (signed) long to be drawn from the distribution
+     * @param shape the {@link Shape} of the {@link NDArray}
+     * @param dataType the {@link DataType} of the {@link NDArray}
+     * @return the drawn samples {@link NDArray}
+     */
+    NDArray randomInteger(long low, long high, Shape shape, DataType dataType);
+
+    /**
      * Draws samples from a uniform distribution.
      *
      * <p>Samples are uniformly distributed over the half-open interval [low, high) (includes low,
@@ -1057,7 +1101,7 @@ public interface NDManager extends AutoCloseable {
      * @return the drawn samples {@link NDArray}
      */
     default NDArray randomUniform(float low, float high, Shape shape) {
-        return randomUniform(low, high, shape, DataType.UNKNOWN);
+        return randomUniform(low, high, shape, DataType.FLOAT32);
     }
 
     /**

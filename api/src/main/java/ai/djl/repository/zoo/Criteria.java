@@ -14,14 +14,36 @@ package ai.djl.repository.zoo;
 
 import ai.djl.Application;
 import ai.djl.Device;
+import ai.djl.Model;
 import ai.djl.nn.Block;
 import ai.djl.translate.Translator;
+import ai.djl.translate.TranslatorFactory;
+import ai.djl.util.JsonUtils;
 import ai.djl.util.Progress;
+import java.net.MalformedURLException;
+import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
 
 /**
  * The {@code Criteria} class contains search criteria to look up a {@link ZooModel}.
+ *
+ * <p>Criteria follows Builder pattern. See {@link Builder} for detail. In DJL's builder convention,
+ * the methods start with {@code set} are required fields, and {@code opt} for optional fields.
+ *
+ * <p>Examples
+ *
+ * <pre>
+ * Criteria&lt;Image, Classifications&gt; criteria = Criteria.builder()
+ *         .setTypes(Image.class, Classifications.class) // defines input and output data type
+ *         .optTranslator(ImageClassificationTranslator.builder().setSynsetArtifactName("synset.txt").build())
+ *         .optModelUrls("file:///var/models/my_resnet50") // search models in specified path
+ *         .optModelName("resnet50") // specify model file prefix
+ *         .build();
+ * </pre>
+ *
+ * <p>See <a href="http://docs.djl.ai/docs/load_model.html#criteria-class">Model loading</a> for
+ * more detail.
  *
  * @param <I> the model input type
  * @param <O> the model output type
@@ -38,8 +60,8 @@ public class Criteria<I, O> {
     private ModelZoo modelZoo;
     private Map<String, String> filters;
     private Map<String, Object> arguments;
-    private Map<String, Object> options;
-    private Translator<I, O> translator;
+    private Map<String, String> options;
+    private TranslatorFactory<I, O> factory;
     private Block block;
     private String modelName;
     private Progress progress;
@@ -56,7 +78,7 @@ public class Criteria<I, O> {
         this.filters = builder.filters;
         this.arguments = builder.arguments;
         this.options = builder.options;
-        this.translator = builder.translator;
+        this.factory = builder.factory;
         this.block = builder.block;
         this.modelName = builder.modelName;
         this.progress = builder.progress;
@@ -157,17 +179,17 @@ public class Criteria<I, O> {
      *
      * @return the model loading options
      */
-    public Map<String, Object> getOptions() {
+    public Map<String, String> getOptions() {
         return options;
     }
 
     /**
-     * Returns the optional {@link Translator} to be used for {@link ZooModel}.
+     * Returns the optional {@link TranslatorFactory} to be used for {@link ZooModel}.
      *
-     * @return the optional {@link Translator} to be used for {@link ZooModel}
+     * @return the optional {@link TranslatorFactory} to be used for {@link ZooModel}
      */
-    public Translator<I, O> getTranslator() {
-        return translator;
+    public TranslatorFactory<I, O> getTranslatorFactory() {
+        return factory;
     }
 
     /**
@@ -197,8 +219,48 @@ public class Criteria<I, O> {
         return progress;
     }
 
+    /** {@inheritDoc} */
+    @Override
+    public String toString() {
+        StringBuilder sb = new StringBuilder(128);
+        sb.append("Criteria:\n");
+        if (application != null) {
+            sb.append("\tApplication: ").append(application).append('\n');
+        }
+        sb.append("\tInput: ").append(inputClass).append('\n');
+        sb.append("\tOutput: ").append(outputClass).append('\n');
+        if (engine != null) {
+            sb.append("\tEngine: ").append(engine).append('\n');
+        }
+        if (modelZoo != null) {
+            sb.append("\tModelZoo: ").append(modelZoo.getGroupId()).append('\n');
+        }
+        if (groupId != null) {
+            sb.append("\tGroupID: ").append(groupId).append('\n');
+        }
+        if (artifactId != null) {
+            sb.append("\tArtifactId: ").append(artifactId).append('\n');
+        }
+        if (filters != null) {
+            sb.append("\tFilter: ").append(JsonUtils.GSON.toJson(filters)).append('\n');
+        }
+        if (arguments != null) {
+            sb.append("\tArguments: ").append(JsonUtils.GSON.toJson(arguments)).append('\n');
+        }
+        if (options != null) {
+            sb.append("\tOptions: ").append(JsonUtils.GSON.toJson(options)).append('\n');
+        }
+        if (factory == null) {
+            sb.append("\tNo translator supplied\n");
+        }
+        return sb.toString();
+    }
+
     /**
      * Creates a builder to build a {@code Criteria}.
+     *
+     * <p>The methods start with {@code set} are required fields, and {@code opt} for optional
+     * fields.
      *
      * @return a new builder
      */
@@ -219,13 +281,15 @@ public class Criteria<I, O> {
         ModelZoo modelZoo;
         Map<String, String> filters;
         Map<String, Object> arguments;
-        Map<String, Object> options;
-        Translator<I, O> translator;
+        Map<String, String> options;
+        TranslatorFactory<I, O> factory;
         Block block;
         String modelName;
         Progress progress;
 
-        Builder() {}
+        Builder() {
+            application = Application.UNDEFINED;
+        }
 
         private Builder(Class<I> inputClass, Class<O> outputClass, Builder<?, ?> parent) {
             this.inputClass = inputClass;
@@ -328,6 +392,18 @@ public class Criteria<I, O> {
         }
 
         /**
+         * Sets the optional model path of the {@link ModelLoader} for this criteria.
+         *
+         * @param modelPath the path to the model folder/files
+         * @return this {@code Builder}
+         * @throws MalformedURLException wrong path format
+         */
+        public Builder<I, O> optModelPath(Path modelPath) throws MalformedURLException {
+            this.modelZoo = new DefaultModelZoo(modelPath.toUri().toURL().toString());
+            return this;
+        }
+
+        /**
          * Sets optional {@link ModelZoo} of the {@link ModelLoader} for this criteria.
          *
          * @param modelZoo ModelZoo} of the {@link ModelLoader} for this criteria
@@ -418,7 +494,7 @@ public class Criteria<I, O> {
          * @param options the model loading options
          * @return this {@code Builder}
          */
-        public Builder<I, O> optOptions(Map<String, Object> options) {
+        public Builder<I, O> optOptions(Map<String, String> options) {
             this.options = options;
             return this;
         }
@@ -430,7 +506,7 @@ public class Criteria<I, O> {
          * @param value the model loading option value
          * @return this {@code Builder}
          */
-        public Builder<I, O> optOption(String key, Object value) {
+        public Builder<I, O> optOption(String key, String value) {
             if (options == null) {
                 options = new HashMap<>();
             }
@@ -445,7 +521,18 @@ public class Criteria<I, O> {
          * @return this {@code Builder}
          */
         public Builder<I, O> optTranslator(Translator<I, O> translator) {
-            this.translator = translator;
+            this.factory = new TranslatorFactorImpl<>(translator);
+            return this;
+        }
+
+        /**
+         * Sets the optional {@link TranslatorFactory} to override default {@code Translator}.
+         *
+         * @param factory the override {@code TranslatorFactory}
+         * @return this {@code Builder}
+         */
+        public Builder<I, O> optTranslatorFactory(TranslatorFactory<I, O> factory) {
+            this.factory = factory;
             return this;
         }
 
@@ -467,6 +554,21 @@ public class Criteria<I, O> {
          */
         public Criteria<I, O> build() {
             return new Criteria<>(this);
+        }
+    }
+
+    private static final class TranslatorFactorImpl<I, O> implements TranslatorFactory<I, O> {
+
+        private Translator<I, O> translator;
+
+        public TranslatorFactorImpl(Translator<I, O> translator) {
+            this.translator = translator;
+        }
+
+        /** {@inheritDoc} */
+        @Override
+        public Translator<I, O> newInstance(Model model, Map<String, ?> arguments) {
+            return translator;
         }
     }
 }

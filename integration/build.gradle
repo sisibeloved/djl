@@ -3,12 +3,6 @@ plugins {
     id 'jacoco'
 }
 
-repositories {
-    maven {
-        url 'https://oss.sonatype.org/content/repositories/snapshots/'
-    }
-}
-
 dependencies {
     api "commons-cli:commons-cli:${commons_cli_version}"
     api "org.apache.logging.log4j:log4j-slf4j-impl:${log4j_slf4j_version}"
@@ -19,18 +13,13 @@ dependencies {
         exclude group: "junit", module: "junit"
     }
 
-    if (System.getProperty("ai.djl.default_engine") == "PyTorch") {
-        runtimeOnly project(":pytorch:pytorch-engine")
-        runtimeOnly project(":pytorch:pytorch-model-zoo")
-        runtimeOnly "ai.djl.pytorch:pytorch-native-auto:${pytorch_version}"
-    } else if (System.getProperty("ai.djl.default_engine") == "TensorFlow") {
-        runtimeOnly project(":tensorflow:tensorflow-engine")
-        runtimeOnly project(":tensorflow:tensorflow-native-auto")
-    } else {
-        runtimeOnly project(":mxnet:mxnet-engine")
-        runtimeOnly project(":mxnet:mxnet-model-zoo")
-        runtimeOnly "ai.djl.mxnet:mxnet-native-auto:${mxnet_version}"
-    }
+    runtimeOnly project(":mxnet:mxnet-model-zoo")
+    runtimeOnly "ai.djl.mxnet:mxnet-native-auto:${mxnet_version}"
+    runtimeOnly project(":pytorch:pytorch-model-zoo")
+    runtimeOnly "ai.djl.pytorch:pytorch-native-auto:${pytorch_version}"
+    runtimeOnly project(":tensorflow:tensorflow-model-zoo")
+    runtimeOnly "ai.djl.tensorflow:tensorflow-native-auto:${tensorflow_version}"
+    runtimeOnly project(":onnxruntime:onnxruntime-engine")
 }
 
 task copyDependencies(type: Copy) {
@@ -47,6 +36,7 @@ run {
     systemProperties System.getProperties()
     systemProperties.remove("user.dir")
     systemProperty("file.encoding", "UTF-8")
+    jvmArgs "-Xverify:none"
 }
 
 jacocoTestReport {

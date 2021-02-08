@@ -94,6 +94,16 @@ public abstract class Optimizer {
     }
 
     /**
+     * Returns a new instance of {@link ai.djl.training.optimizer.Adadelta.Builder} that can build
+     * an {@link Adadelta} optimizer.
+     *
+     * @return the {@link Adadelta} {@link ai.djl.training.optimizer.Adadelta.Builder}
+     */
+    public static Adadelta.Builder adadelta() {
+        return new Adadelta.Builder();
+    }
+
+    /**
      * Gets the value of weight decay.
      *
      * @return the value of weight decay
@@ -131,6 +141,7 @@ public abstract class Optimizer {
                         k -> {
                             Map<Device, NDArray> map = new ConcurrentHashMap<>();
                             NDArray s = defaultFunction.apply(k);
+                            // TODO attach s to the NDManager of ParameterStore
                             s.detach(); // s is detached because it would be put into the optimizer
                             // callback manager and closed after the optimizer callback
                             // when using the MxParameterServer. For now, this will let it be closed
@@ -142,7 +153,7 @@ public abstract class Optimizer {
                             return map;
                         });
         return arrayMap.computeIfAbsent(
-                device, k -> ((NDArray) arrayMap.values().toArray()[0]).toDevice(device, true));
+                device, k -> arrayMap.values().iterator().next().toDevice(device, true));
     }
 
     /** The Builder to construct an {@link Optimizer}. */

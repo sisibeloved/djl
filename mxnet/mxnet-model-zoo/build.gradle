@@ -1,11 +1,5 @@
 group 'ai.djl.mxnet'
 
-repositories {
-    maven {
-        url 'https://oss.sonatype.org/content/repositories/snapshots/'
-    }
-}
-
 dependencies {
     api project(":api")
     api project(":mxnet:mxnet-engine")
@@ -34,8 +28,8 @@ publishing {
     publications {
         maven(MavenPublication) {
             pom {
-                name = "MXNet model zoo"
-                description = "MXNet model zoo for DJL"
+                name = "DJL model zoo for Apache MXNet"
+                description = "Deep Java Library (DJL) model zoo for Apache MXNet"
                 url = "http://www.djl.ai/mxnet/${project.name}"
             }
         }

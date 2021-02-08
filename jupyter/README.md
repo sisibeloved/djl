@@ -10,9 +10,11 @@ This folder contains tutorials that illustrate how to accomplish basic AI tasks 
 
 - [Run object detection with model zoo](object_detection_with_model_zoo.ipynb)
 - [Load pre-trained PyTorch model](load_pytorch_model.ipynb)
-- [Load pre-trained MXNet model](load_mxnet_model.ipynb)
+- [Load pre-trained Apache MXNet model](load_mxnet_model.ipynb)
 - [Transfer learning example](transfer_learning_on_cifar10.ipynb)
 - [Question answering example](BERTQA.ipynb)
+
+You can run our notebook online: [![Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/awslabs/djl/master?filepath=jupyter)
 
 ## Setup
 
@@ -70,3 +72,12 @@ cd jupyter
 docker build -t deepjavalibrary/jupyter .
 ```
 
+### Run docker compose
+
+```
+cd jupyter
+docker-compose build
+docker-compose up -d
+```
+
+You can open the `http://localhost:8888` to see the hosted instance on docker compose.

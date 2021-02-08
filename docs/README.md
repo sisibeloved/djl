@@ -16,13 +16,14 @@ This folder contains examples and documentation for the Deep Java Library (DJL) 
 - [Cache Management](development/cache_management.md)
 - [Memory Management](development/memory_management.md)
 - [Troubleshooting](development/troubleshooting.md)
+- [Inference Optimization](development/inference_performance_optimization.md)
 
 ## [Jupyter notebook tutorials](../jupyter/README.md)
 
 - **[Beginner Jupyter Tutorial](../jupyter/tutorial/README.md)**
 - [Run object detection with model zoo](../jupyter/object_detection_with_model_zoo.ipynb)
 - [Load pre-trained PyTorch model](../jupyter/load_pytorch_model.ipynb)
-- [Load pre-trained MXNet model](../jupyter/load_mxnet_model.ipynb)
+- [Load pre-trained Apache MXNet model](../jupyter/load_mxnet_model.ipynb)
 - [Transfer learning example](../jupyter/transfer_learning_on_cifar10.ipynb)
 - [Question answering example](../jupyter/BERTQA.ipynb)
 
@@ -33,42 +34,41 @@ This folder contains examples and documentation for the Deep Java Library (DJL) 
 - [Image classification example](../examples/docs/image_classification.md)
 - [Transfer learning example](../examples/docs/train_cifar10_resnet.md)
 - [Train SSD model example](../examples/docs/train_pikachu_ssd.md)
-- [Multi-threaded inference example](../examples/docs/multithread_inference.md)
 - [Bert question and answer example](../examples/docs/BERT_question_and_answer.md)
 - [Instance segmentation example](../examples/docs/instance_segmentation.md)
 - [Pose estimation example](../examples/docs/pose_estimation.md)
 - [Action recognition example](../examples/docs/action_recognition.md)
+- [Sentiment Analysis example](../examples/docs/sentiment_analysis.md)
 
 ## Engine Documentation
 
-### [MXNet](../mxnet/README.md)
+### [Apache MXNet](../mxnet/README.md)
 
-- [MXNet Gluon Importing](mxnet/how_to_convert_your_model_to_symbol.md) - MXNet Gluon Importing
+- [Apache MXNet Gluon Importing](mxnet/how_to_convert_your_model_to_symbol.md) - Apache MXNet Gluon Importing
 
 ### [PyTorch](../pytorch/README.md)
 
 - [PyTorch Importing](pytorch/how_to_convert_your_model_to_torchscript.md) - Import TorchScript model
-- [Pytorch Inference Optimization](pytorch/how_to_optimize_inference_performance.md) - Improve inference performance
-
 
 ### [TensorFlow](../tensorflow/README.md)
 
-- [Keras Imporint](tensorflow/how_to_import_keras_models_in_DJL.md)
+- [TensorFlow Importing](tensorflow/how_to_import_tensorflow_models_in_DJL.md)
 
 ### [ONNX Runtime](../onnxruntime/onnxruntime-engine/README.md)
 
-- [Hybrid Engine Operations](onnxruntime/hybrid_engine.md) - Using a second Engine for supplemental API support
+- [Hybrid Engine Operations](hybrid_engine.md) - Using a second Engine for supplemental API support
 
 ## Extensions and utilities
 
 - [Android support](../android/README.md)
-- [AWS S3 support](../3rdparty/aws-ai/README.md)
-- [Hadoop support](../3rdparty/hadoop/README.md)
+- [AWS S3 support](../extensions/aws-ai/README.md)
+- [Hadoop support](../extensions/hadoop/README.md)
 
 ## [Contributor Documentation](development/README.md)
 
 - [Setup development environment](development/setup.md)
 - [Development guideline](development/development_guideline.md)
-- [Release process](development/release_process.md)
+
+## [Roadmap](roadmap.md)
 
 ## [FAQ](faq.md)

@@ -51,34 +51,7 @@ public class Batch implements AutoCloseable {
     /**
      * Creates a new instance of {@code Batch} with the given manager, data and labels.
      *
-     * @param manager the {@link NDManager} to be attached to data and labels
-     * @param data the {@link NDList} containing the data
-     * @param labels the {@link NDList} containing the labels
-     * @param size the number of {@link Record}s in the batch
-     * @param dataBatchifier the {@link Batchifier} that is used to split data
-     * @param labelBatchifier the {@link Batchifier} that is used to split labels
-     */
-    public Batch(
-            NDManager manager,
-            NDList data,
-            NDList labels,
-            int size,
-            Batchifier dataBatchifier,
-            Batchifier labelBatchifier) {
-        this.manager = manager;
-        data.attach(manager);
-        labels.attach(manager);
-        this.data = data;
-        this.labels = labels;
-        this.size = size;
-        this.dataBatchifier = dataBatchifier;
-        this.labelBatchifier = labelBatchifier;
-    }
-
-    /**
-     * Creates a new instance of {@code Batch} with the given manager, data and labels.
-     *
-     * @param manager the {@link NDManager} to be attached to data and labels
+     * @param manager the manager for the {@code Batch}
      * @param data the {@link NDList} containing the data
      * @param labels the {@link NDList} containing the labels
      * @param size (batchSize) the number of {@link Record}s in the batch
@@ -87,7 +60,6 @@ public class Batch implements AutoCloseable {
      * @param progress the progress of the batch if it is part of some kind of iteration like a
      *     dataset iteration. Returns 0 if there is no iteration.
      * @param progressTotal the total or end value for the progress of the batch if it is part of
-     *     some kind of iteration like a dataset iteration. Returns 0 if there is no iteration.
      */
     public Batch(
             NDManager manager,
@@ -99,6 +71,7 @@ public class Batch implements AutoCloseable {
             long progress,
             long progressTotal) {
         this.manager = manager;
+        this.manager.setName("batch");
         data.attach(manager);
         labels.attach(manager);
         this.data = data;
@@ -194,7 +167,7 @@ public class Batch implements AutoCloseable {
             if (data.head().getDevice().equals(devices[0])) {
                 return new Batch[] {
                     new Batch(
-                            manager,
+                            manager.newSubManager(),
                             data,
                             labels,
                             size,
@@ -208,7 +181,7 @@ public class Batch implements AutoCloseable {
                 NDList l = labels.toDevice(devices[0], true);
                 return new Batch[] {
                     new Batch(
-                            manager,
+                            manager.newSubManager(devices[0]),
                             d,
                             l,
                             size,
@@ -232,7 +205,7 @@ public class Batch implements AutoCloseable {
                     (i == splittedData.length - 1) ? (size - i * baseSplitSize) : baseSplitSize;
             splitted[i] =
                     new Batch(
-                            manager,
+                            manager.newSubManager(devices[i]),
                             d,
                             l,
                             subSize,

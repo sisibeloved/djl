@@ -13,6 +13,7 @@
 package ai.djl.ndarray;
 
 import ai.djl.Device;
+import ai.djl.ndarray.types.Shape;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
@@ -21,6 +22,9 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.List;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 /**
  * An {@code NDList} represents a sequence of {@link NDArray}s with names.
@@ -73,7 +77,10 @@ public class NDList extends ArrayList<NDArray> implements AutoCloseable {
     public static NDList decode(NDManager manager, byte[] byteArray) {
         try (DataInputStream dis = new DataInputStream(new ByteArrayInputStream(byteArray))) {
             int size = dis.readInt();
-            NDList list = new NDList(size);
+            if (size < 0) {
+                throw new IllegalArgumentException("Invalid NDList size: " + size);
+            }
+            NDList list = new NDList();
             for (int i = 0; i < size; i++) {
                 list.add(i, manager.decode(dis));
             }
@@ -195,10 +202,23 @@ public class NDList extends ArrayList<NDArray> implements AutoCloseable {
      * Attaches each ndarray in this list to the specified manager.
      *
      * @param manager the manager to attach the lists to
+     * @return a list of {@code NDManager} with which original NDArray are attached
      * @see NDArray#attach(NDManager)
      */
-    public void attach(NDManager manager) {
-        forEach(a -> a.attach(manager));
+    public List<NDManager> attach(NDManager manager) {
+        return stream().map(array -> array.attach(manager)).collect(Collectors.toList());
+    }
+
+    /**
+     * Attaches each ndarray in this list to the specified manager.
+     *
+     * @param managers the list of managers to attach
+     * @return a list of {@code NDManager} with which original NDArray are attached
+     */
+    public List<NDManager> attach(List<NDManager> managers) {
+        return IntStream.range(0, size())
+                .mapToObj(i -> get(i).attach(managers.get(i)))
+                .collect(Collectors.toList());
     }
 
     /**
@@ -225,8 +245,17 @@ public class NDList extends ArrayList<NDArray> implements AutoCloseable {
             dos.flush();
             return baos.toByteArray();
         } catch (IOException e) {
-            throw new IllegalStateException("NDList is not writable", e);
+            throw new AssertionError("NDList is not writable", e);
         }
+    }
+
+    /**
+     * Gets all of shapes in the {@code NDList}.
+     *
+     * @return shapes in {@code NDList}
+     */
+    public Shape[] getShapes() {
+        return stream().map(NDArray::getShape).toArray(Shape[]::new);
     }
 
     /** {@inheritDoc} */

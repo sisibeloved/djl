@@ -1,8 +1,8 @@
-# DJL - MXNet model zoo
+# DJL - Apache MXNet model zoo
 
 ## Introduction
 
-The MXNet model zoo contains symbolic models that can be used for inference and training. All the models in this model zoo contain pre-trained parameters for their specific datasets.
+The model zoo contains symbolic models from Apache MXNet (incubating) that can be used for inference and training. All the models in this model zoo contain pre-trained parameters for their specific datasets.
 
 ## Documentation
 
@@ -27,13 +27,14 @@ You can pull the MXNet engine from the central Maven repository by including the
 <dependency>
     <groupId>ai.djl.mxnet</groupId>
     <artifactId>mxnet-model-zoo</artifactId>
-    <version>0.6.0</version>
+    <version>0.9.0</version>
 </dependency>
 ```
 
 ## Pre-trained models
 
-The MXNet model zoo contains two major categories: Computer Vision (CV) and Natural Language Processing (NLP). All the models are grouped by task under these two categories as follows:
+The MXNet model zoo contains two major categories: Computer Vision (CV) and Natural Language Processing (NLP). 
+All the models are grouped by task under these two categories as follows:
 
 
 * CV
@@ -61,8 +62,8 @@ The following is an example of the criteria to find a Resnet50-v1 model that has
     criteria.put("flavor", "v1");
     criteria.put("dataset", "imagenet");
 
-    ZooModel<Image, Classification> model = MxModelZoo.RESNET.loadModel(criteria, device);
-``` 
+    ZooModel<Image, Classifications> model = MxModelZoo.RESNET.loadModel(criteria, device);
+```
 
 ### List of search criteria for each model
 

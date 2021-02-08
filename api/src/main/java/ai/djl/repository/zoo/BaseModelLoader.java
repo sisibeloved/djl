@@ -12,16 +12,21 @@
  */
 package ai.djl.repository.zoo;
 
+import ai.djl.Application;
 import ai.djl.Device;
 import ai.djl.MalformedModelException;
 import ai.djl.Model;
 import ai.djl.engine.Engine;
+import ai.djl.modality.Input;
+import ai.djl.modality.Output;
 import ai.djl.ndarray.NDList;
 import ai.djl.repository.Artifact;
 import ai.djl.repository.MRL;
 import ai.djl.repository.Repository;
 import ai.djl.repository.Resource;
 import ai.djl.translate.NoopTranslator;
+import ai.djl.translate.ServingTranslatorFactory;
+import ai.djl.translate.TranslateException;
 import ai.djl.translate.Translator;
 import ai.djl.translate.TranslatorFactory;
 import ai.djl.util.Pair;
@@ -35,7 +40,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 /** Shared code for the {@link ModelLoader} implementations. */
-public abstract class BaseModelLoader<I, O> implements ModelLoader<I, O> {
+public class BaseModelLoader implements ModelLoader {
 
     protected Map<Pair<Type, Type>, TranslatorFactory<?, ?>> factories;
     protected ModelZoo modelZoo;
@@ -51,11 +56,12 @@ public abstract class BaseModelLoader<I, O> implements ModelLoader<I, O> {
      */
     protected BaseModelLoader(Repository repository, MRL mrl, String version, ModelZoo modelZoo) {
         this.resource = new Resource(repository, mrl, version);
+        this.modelZoo = modelZoo;
         factories = new ConcurrentHashMap<>();
         factories.put(
                 new Pair<>(NDList.class, NDList.class),
-                (TranslatorFactory<NDList, NDList>) arguments -> new NoopTranslator());
-        this.modelZoo = modelZoo;
+                (TranslatorFactory<NDList, NDList>) (m, c) -> new NoopTranslator());
+        factories.put(new Pair<>(Input.class, Output.class), new ServingTranslatorFactory());
     }
 
     /** {@inheritDoc} */
@@ -66,26 +72,30 @@ public abstract class BaseModelLoader<I, O> implements ModelLoader<I, O> {
 
     /** {@inheritDoc} */
     @Override
-    public <S, T> ZooModel<S, T> loadModel(Criteria<S, T> criteria)
+    public Application getApplication() {
+        return resource.getMrl().getApplication();
+    }
+
+    /** {@inheritDoc} */
+    @Override
+    public <I, O> ZooModel<I, O> loadModel(Criteria<I, O> criteria)
             throws IOException, ModelNotFoundException, MalformedModelException {
         Artifact artifact = resource.match(criteria.getFilters());
         if (artifact == null) {
-            throw new ModelNotFoundException("Model not found.");
+            throw new ModelNotFoundException("No matching filter found");
         }
 
-        Map<String, Object> override = criteria.getArguments();
         Progress progress = criteria.getProgress();
-        Map<String, Object> arguments = artifact.getArguments(override);
+        Map<String, Object> arguments = artifact.getArguments(criteria.getArguments());
+        Map<String, String> options = artifact.getOptions(criteria.getOptions());
 
         try {
-            Translator<S, T> translator = criteria.getTranslator();
-            if (translator == null) {
-                TranslatorFactory<S, T> factory = getTranslatorFactory(criteria);
+            TranslatorFactory<I, O> factory = criteria.getTranslatorFactory();
+            if (factory == null) {
+                factory = getTranslatorFactory(criteria);
                 if (factory == null) {
-                    throw new ModelNotFoundException("No matching default translator found.");
+                    throw new ModelNotFoundException("No matching default translator found");
                 }
-
-                translator = factory.newInstance(arguments);
             }
 
             resource.prepare(artifact, progress);
@@ -117,7 +127,7 @@ public abstract class BaseModelLoader<I, O> implements ModelLoader<I, O> {
                 }
             }
             if (engine != null && !Engine.hasEngine(engine)) {
-                throw new ModelNotFoundException(engine + " is not supported.");
+                throw new ModelNotFoundException(engine + " is not supported");
             }
 
             String modelName = criteria.getModelName();
@@ -129,8 +139,15 @@ public abstract class BaseModelLoader<I, O> implements ModelLoader<I, O> {
             if (criteria.getBlock() != null) {
                 model.setBlock(criteria.getBlock());
             }
-            model.load(modelPath, null, criteria.getOptions());
+            model.load(modelPath, null, options);
+            Application application = criteria.getApplication();
+            if (application != Application.UNDEFINED) {
+                arguments.put("application", application.getPath());
+            }
+            Translator<I, O> translator = factory.newInstance(model, arguments);
             return new ZooModel<>(model, translator);
+        } catch (TranslateException e) {
+            throw new ModelNotFoundException("No matching translator found", e);
         } finally {
             if (progress != null) {
                 progress.end();
@@ -162,11 +179,11 @@ public abstract class BaseModelLoader<I, O> implements ModelLoader<I, O> {
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder(200);
-        sb.append(resource.getRepository().getName())
-                .append(':')
-                .append(resource.getMrl().getGroupId())
+        sb.append(resource.getMrl().getGroupId())
                 .append(':')
                 .append(resource.getMrl().getArtifactId())
+                .append(' ')
+                .append(getApplication())
                 .append(" [\n");
         try {
             for (Artifact artifact : listModels()) {
@@ -175,13 +192,19 @@ public abstract class BaseModelLoader<I, O> implements ModelLoader<I, O> {
         } catch (IOException e) {
             sb.append("\tFailed load metadata.");
         }
-        sb.append("\n]");
+        sb.append("]");
         return sb.toString();
     }
 
     @SuppressWarnings("unchecked")
-    private <S, T> TranslatorFactory<S, T> getTranslatorFactory(Criteria<S, T> criteria) {
-        return (TranslatorFactory<S, T>)
+    private <I, O> TranslatorFactory<I, O> getTranslatorFactory(Criteria<I, O> criteria) {
+        if (criteria.getInputClass() == null) {
+            throw new IllegalArgumentException("The criteria must set an input class");
+        }
+        if (criteria.getOutputClass() == null) {
+            throw new IllegalArgumentException("The criteria must set an output class");
+        }
+        return (TranslatorFactory<I, O>)
                 factories.get(new Pair<>(criteria.getInputClass(), criteria.getOutputClass()));
     }
 }

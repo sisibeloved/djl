@@ -20,13 +20,16 @@ import ai.djl.ndarray.index.NDArrayIndexer;
 import ai.djl.ndarray.internal.NDArrayEx;
 import ai.djl.ndarray.types.DataType;
 import ai.djl.ndarray.types.Shape;
+import ai.djl.nn.recurrent.RNN;
 import ai.djl.util.PairList;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.BiFunction;
 import org.tensorflow.Operand;
 import org.tensorflow.Tensor;
 import org.tensorflow.op.Ops;
 import org.tensorflow.op.core.Stack;
+import org.tensorflow.types.TInt32;
 import org.tensorflow.types.family.TNumber;
 import org.tensorflow.types.family.TType;
 
@@ -242,6 +245,19 @@ public class TfNDArrayEx implements NDArrayEx {
 
     /** {@inheritDoc} */
     @Override
+    public void adadeltaUpdate(
+            NDList inputs,
+            NDList weights,
+            float weightDecay,
+            float rescaleGrad,
+            float clipGrad,
+            float rho,
+            float epsilon) {
+        throw new UnsupportedOperationException("Not implemented");
+    }
+
+    /** {@inheritDoc} */
+    @Override
     public void adagradUpdate(
             NDList inputs,
             NDList weights,
@@ -327,6 +343,20 @@ public class TfNDArrayEx implements NDArrayEx {
 
     /** {@inheritDoc} */
     @Override
+    public NDList deconvolution(
+            NDArray input,
+            NDArray weight,
+            NDArray bias,
+            Shape stride,
+            Shape padding,
+            Shape outPadding,
+            Shape dilation,
+            int groups) {
+        throw new UnsupportedOperationException("Not implemented");
+    }
+
+    /** {@inheritDoc} */
+    @Override
     public NDList linear(NDArray input, NDArray weight, NDArray bias) {
         throw new UnsupportedOperationException("Not implemented");
     }
@@ -373,34 +403,50 @@ public class TfNDArrayEx implements NDArrayEx {
     /** {@inheritDoc} */
     @Override
     public NDList rnn(
-            NDList inputs,
-            String mode,
-            long stateSize,
-            float dropRate,
-            int numStackedLayers,
-            boolean useSequenceLength,
-            boolean useBidirectional,
-            boolean stateOutputs,
-            PairList<String, Object> additional) {
+            NDArray input,
+            NDArray state,
+            NDList params,
+            boolean hasBiases,
+            int numLayers,
+            RNN.Activation activation,
+            double dropRate,
+            boolean train,
+            boolean bidirectional,
+            boolean batchFirst) {
+        throw new UnsupportedOperationException("Not implemented");
+    }
+
+    /** {@inheritDoc} */
+    @Override
+    public NDList gru(
+            NDArray input,
+            NDArray state,
+            NDList params,
+            boolean hasBiases,
+            int numLayers,
+            double dropRate,
+            boolean training,
+            boolean bidirectional,
+            boolean batchFirst) {
         throw new UnsupportedOperationException("Not implemented");
     }
 
     /** {@inheritDoc} */
     @Override
     public NDList lstm(
-            NDList inputs,
-            long stateSize,
-            float dropRate,
-            int numStackedLayers,
-            boolean useSequenceLength,
-            boolean useBidirectional,
-            boolean stateOutputs,
-            double lstmStateClipMin,
-            double lstmStateClipMax,
-            PairList<String, Object> additional) {
+            NDArray input,
+            NDList states,
+            NDList params,
+            boolean hasBiases,
+            int numLayers,
+            double dropRate,
+            boolean training,
+            boolean bidirectional,
+            boolean batchFirst) {
         throw new UnsupportedOperationException("Not implemented");
     }
 
+    /** {@inheritDoc} */
     @Override
     public NDArray normalize(float[] mean, float[] std) {
         // TODO: TensorFlow does not support channels first on CPU for conv2d
@@ -414,6 +460,7 @@ public class TfNDArrayEx implements NDArrayEx {
         }
     }
 
+    /** {@inheritDoc} */
     @Override
     public NDArray toTensor() {
         // TODO: TensorFlow does not support channels first on CPU for conv2d
@@ -437,14 +484,16 @@ public class TfNDArrayEx implements NDArrayEx {
     /** {@inheritDoc} */
     @SuppressWarnings("unchecked")
     @Override
-    public NDArray resize(int width, int height) {
+    public NDArray resize(int width, int height, int interpolation) {
         if (manager.create(array.getShape().getShape()).prod().toLongArray()[0] == 0L) {
             throw new IllegalArgumentException("Can't resize image with 0 dims.");
         }
+        BiFunction<Operand<TNumber>, Operand<TInt32>, Operand<? extends TNumber>> function =
+                getResizeFunction(interpolation);
         if (array.getShape().dimension() == 3) {
             try (Tensor<?> tensor =
                     tf.squeeze(
-                                    tf.image.resizeBilinear(
+                                    function.apply(
                                             ((TfNDArray) array.expandDims(0)).getOperand(),
                                             tf.constant(new int[] {height, width})))
                             .asTensor()) {
@@ -452,35 +501,37 @@ public class TfNDArrayEx implements NDArrayEx {
             }
         }
         try (Tensor<?> tensor =
-                tf.image
-                        .resizeBilinear(
-                                (Operand<? extends TNumber>) operand,
-                                tf.constant(new int[] {height, width}))
+                function.apply((Operand<TNumber>) operand, tf.constant(new int[] {height, width}))
                         .asTensor()) {
             return new TfNDArray(manager, tensor);
         }
     }
 
+    /** {@inheritDoc} */
     @Override
     public NDArray randomFlipLeftRight() {
         throw new UnsupportedOperationException("Not implemented");
     }
 
+    /** {@inheritDoc} */
     @Override
     public NDArray randomFlipTopBottom() {
         throw new UnsupportedOperationException("Not implemented");
     }
 
+    /** {@inheritDoc} */
     @Override
     public NDArray randomBrightness(float brightness) {
         throw new UnsupportedOperationException("Not implemented");
     }
 
+    /** {@inheritDoc} */
     @Override
     public NDArray randomHue(float hue) {
         throw new UnsupportedOperationException("Not implemented");
     }
 
+    /** {@inheritDoc} */
     @Override
     public NDArray randomColorJitter(
             float brightness, float contrast, float saturation, float hue) {
@@ -580,5 +631,22 @@ public class TfNDArrayEx implements NDArrayEx {
     @Override
     public NDArray getArray() {
         return array;
+    }
+
+    private BiFunction<Operand<TNumber>, Operand<TInt32>, Operand<? extends TNumber>>
+            getResizeFunction(int interpolate) {
+        switch (interpolate) {
+            case 0:
+                return tf.image::resizeNearestNeighbor;
+            case 1:
+                return tf.image::resizeBilinear;
+            case 2:
+                return tf.image::resizeArea;
+            case 3:
+                return tf.image::resizeBicubic;
+            default:
+                throw new UnsupportedOperationException(
+                        "The kind of interpolation is not supported.");
+        }
     }
 }

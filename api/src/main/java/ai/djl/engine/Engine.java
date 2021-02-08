@@ -19,9 +19,14 @@ import ai.djl.training.GradientCollector;
 import ai.djl.training.LocalParameterServer;
 import ai.djl.training.ParameterServer;
 import ai.djl.training.optimizer.Optimizer;
-import java.util.Collection;
+import ai.djl.util.cuda.CudaUtils;
+import java.lang.management.MemoryUsage;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.Map;
 import java.util.ServiceLoader;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -43,23 +48,24 @@ public abstract class Engine {
 
     private static final String DEFAULT_ENGINE = initEngine();
 
+    private static EngineException exception;
+
+    private Device defaultDevice;
+
     private static synchronized String initEngine() {
-        Engine firstEngine = null;
         ServiceLoader<EngineProvider> loaders = ServiceLoader.load(EngineProvider.class);
         for (EngineProvider provider : loaders) {
-            Engine engine = provider.getEngine();
-            if (engine != null) {
+            try {
+                Engine engine = provider.getEngine();
                 logger.debug("Engine loaded from provider: {}", engine.getEngineName());
-                if (firstEngine == null) {
-                    firstEngine = engine;
-                }
                 ALL_ENGINES.put(engine.getEngineName(), engine);
-            } else {
-                logger.warn("Failed to load engine from: {}", provider.getClass().getName());
+            } catch (EngineException e) {
+                exception = e;
+                logger.warn("Failed to load engine from: " + provider.getClass().getName(), e);
             }
         }
 
-        if (firstEngine == null) {
+        if (ALL_ENGINES.isEmpty()) {
             logger.debug("No engine found from EngineProvider");
             return null;
         }
@@ -70,7 +76,13 @@ public abstract class Engine {
             if (ALL_ENGINES.size() > 1) {
                 logger.warn("More than one deep learning engines found.");
             }
-            defaultEngine = firstEngine.getEngineName();
+            int rank = Integer.MAX_VALUE;
+            for (Engine engine : ALL_ENGINES.values()) {
+                if (engine.getRank() < rank) {
+                    defaultEngine = engine.getEngineName();
+                    rank = engine.getRank();
+                }
+            }
         } else if (!ALL_ENGINES.containsKey(defaultEngine)) {
             throw new EngineException("Unknown default engine: " + defaultEngine);
         }
@@ -86,6 +98,13 @@ public abstract class Engine {
     public abstract String getEngineName();
 
     /**
+     * Return the rank of the {@code Engine}.
+     *
+     * @return the rank of the engine
+     */
+    public abstract int getRank();
+
+    /**
      * Returns the default Engine.
      *
      * @return the instance of {@code Engine}
@@ -96,7 +115,8 @@ public abstract class Engine {
             throw new EngineException(
                     "No deep learning engine found."
                             + System.lineSeparator()
-                            + "Please refer to https://github.com/awslabs/djl/blob/master/docs/development/troubleshooting.md for more details.");
+                            + "Please refer to https://github.com/awslabs/djl/blob/master/docs/development/troubleshooting.md for more details.",
+                    exception);
         }
         return getEngine(System.getProperty("ai.djl.default_engine", DEFAULT_ENGINE));
     }
@@ -113,12 +133,12 @@ public abstract class Engine {
     }
 
     /**
-     * Returns a Collection of engines that are loaded.
+     * Returns a set of engine names that are loaded.
      *
-     * @return {@code Collection<Engine>} that are supported
+     * @return a set of engine names that are loaded
      */
-    public static Collection<Engine> getAllEngines() {
-        return ALL_ENGINES.values();
+    public static Set<String> getAllEngines() {
+        return ALL_ENGINES.keySet();
     }
 
     /**
@@ -150,6 +170,22 @@ public abstract class Engine {
      * @return {@code true} if the engine has the specified capability
      */
     public abstract boolean hasCapability(String capability);
+
+    /**
+     * Returns the engine's default {@link Device}.
+     *
+     * @return the engine's default {@link Device}
+     */
+    public Device defaultDevice() {
+        if (defaultDevice == null) {
+            if (hasCapability(StandardCapabilities.CUDA) && CudaUtils.getGpuCount() > 0) {
+                defaultDevice = Device.gpu();
+            } else {
+                defaultDevice = Device.cpu();
+            }
+        }
+        return defaultDevice;
+    }
 
     /**
      * Constructs a new model.
@@ -204,9 +240,75 @@ public abstract class Engine {
      */
     public abstract void setRandomSeed(int seed);
 
-    /** Logs debug information about the environment for use when debugging environment issues. */
-    public void debugEnvironment() {
-        logger.info("Engine name: {}", getEngineName());
-        logger.info("Engine version: {}", getVersion());
+    /** Prints debug information about the environment for debugging environment issues. */
+    @SuppressWarnings("PMD.SystemPrintln")
+    public static void debugEnvironment() {
+        System.out.println("----------- System Properties -----------");
+        System.getProperties().forEach((k, v) -> System.out.println(k + ": " + v));
+
+        System.out.println();
+        System.out.println("--------- Environment Variables ---------");
+        System.getenv().forEach((k, v) -> System.out.println(k + ": " + v));
+
+        System.out.println();
+        System.out.println("-------------- Directories --------------");
+        try {
+            Path temp = Paths.get(System.getProperty("java.io.tmpdir"));
+            System.out.println("temp directory: " + temp.toString());
+            Files.createTempFile("test", ".tmp");
+
+            Path path = getEngineCacheDir();
+            System.out.println("Engine cache directory: " + path.toAbsolutePath().toString());
+            Files.createDirectories(path);
+            if (!Files.isWritable(path)) {
+                System.out.println("Engine cache directory is not writable!!!");
+            }
+        } catch (Throwable e) {
+            e.printStackTrace(System.out);
+        }
+
+        System.out.println();
+        System.out.println("------------------ CUDA -----------------");
+        int gpuCount = Device.getGpuCount();
+        System.out.println("GPU Count: " + gpuCount);
+        System.out.println("Default Device: " + Device.defaultDevice());
+        if (gpuCount > 0) {
+            System.out.println("CUDA: " + CudaUtils.getCudaVersionString());
+            System.out.println("ARCH: " + CudaUtils.getComputeCapability(0));
+        }
+        for (int i = 0; i < gpuCount; ++i) {
+            Device device = Device.gpu(i);
+            MemoryUsage mem = CudaUtils.getGpuMemory(device);
+            System.out.println("GPU(" + i + ") memory used: " + mem.getCommitted() + " bytes");
+        }
+
+        System.out.println();
+        System.out.println("----------------- Engines ---------------");
+        System.out.println("Default Engine: " + DEFAULT_ENGINE);
+        for (Engine engine : ALL_ENGINES.values()) {
+            System.out.println(engine);
+        }
+        if (exception != null) {
+            System.out.println("Last error:");
+            exception.printStackTrace(System.out);
+        }
+    }
+
+    private static Path getEngineCacheDir() {
+        String cacheDir = System.getProperty("ENGINE_CACHE_DIR");
+        if (cacheDir == null || cacheDir.isEmpty()) {
+            cacheDir = System.getenv("ENGINE_CACHE_DIR");
+            if (cacheDir == null || cacheDir.isEmpty()) {
+                cacheDir = System.getProperty("DJL_CACHE_DIR");
+                if (cacheDir == null || cacheDir.isEmpty()) {
+                    cacheDir = System.getenv("DJL_CACHE_DIR");
+                    if (cacheDir == null || cacheDir.isEmpty()) {
+                        String userHome = System.getProperty("user.home");
+                        return Paths.get(userHome, ".djl.ai");
+                    }
+                }
+            }
+        }
+        return Paths.get(cacheDir);
     }
 }

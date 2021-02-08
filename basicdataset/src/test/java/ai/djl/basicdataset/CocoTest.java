@@ -13,13 +13,13 @@
 package ai.djl.basicdataset;
 
 import ai.djl.Model;
+import ai.djl.basicdataset.cv.CocoDetection;
 import ai.djl.nn.Blocks;
 import ai.djl.training.DefaultTrainingConfig;
 import ai.djl.training.Trainer;
 import ai.djl.training.TrainingConfig;
 import ai.djl.training.dataset.Batch;
 import ai.djl.training.dataset.Dataset;
-import ai.djl.training.initializer.Initializer;
 import ai.djl.training.loss.Loss;
 import ai.djl.translate.TranslateException;
 import java.io.IOException;
@@ -32,11 +32,14 @@ public class CocoTest {
     @Test(enabled = false)
     public void testCocoRemote() throws IOException, TranslateException {
         CocoDetection coco =
-                CocoDetection.builder().optUsage(Dataset.Usage.TEST).setSampling(1, true).build();
+                CocoDetection.builder()
+                        .optUsage(Dataset.Usage.TEST)
+                        .setSampling(1, true)
+                        .optLimit(3)
+                        .build();
 
         try (Model model = Model.newInstance("model")) {
-            TrainingConfig config =
-                    new DefaultTrainingConfig(Loss.l2Loss()).optInitializer(Initializer.ONES);
+            TrainingConfig config = new DefaultTrainingConfig(Loss.l2Loss());
             model.setBlock(Blocks.identityBlock());
             try (Trainer trainer = model.newTrainer(config)) {
                 for (Batch batch : trainer.iterateDataset(coco)) {

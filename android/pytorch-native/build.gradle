@@ -2,7 +2,7 @@ apply plugin: 'com.android.library'
 apply plugin: 'maven-publish'
 apply plugin: 'signing'
 
-def pytorch_version = "1.5.0"
+def pytorch_version = "1.7.1"
 
 android {
     compileSdkVersion 29
@@ -105,7 +105,7 @@ afterEvaluate {
 
 task processResources {
     doLast {
-        def url = "https://djl-ai.s3.amazonaws.com/publish/pytorch-${pytorch_version}/jnilib/android"
+        def url = "https://publish.djl.ai/pytorch-${pytorch_version}/jnilib/${djl_version}/android"
         def abis = ["armeabi-v7a", "arm64-v8a", "x86", "x86_64"]
         abis.each { abi ->
             def downloadPath = new URL("${url}/${abi}/libdjl_torch.so")

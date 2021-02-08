@@ -16,24 +16,28 @@ import ai.djl.modality.cv.Image;
 import ai.djl.modality.cv.output.BoundingBox;
 import ai.djl.modality.cv.output.DetectedObjects;
 import ai.djl.modality.cv.output.Rectangle;
-import ai.djl.modality.cv.translator.SingleShotDetectionTranslator;
+import ai.djl.modality.cv.translator.ObjectDetectionTranslator;
 import ai.djl.ndarray.NDArray;
 import ai.djl.ndarray.NDList;
-import ai.djl.ndarray.types.DataType;
 import ai.djl.translate.Batchifier;
 import ai.djl.translate.TranslatorContext;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 
 /**
  * A {@link TfSsdTranslator} that post-process the {@link NDArray} into {@link DetectedObjects} with
  * boundaries. Reference implementation: <a
- * href="https://github.com/NVIDIA/DeepLearningExamples/tree/master/PyTorch/Detection/SSD">SSD</a>.
+ * href="https://tfhub.dev/google/openimages_v4/ssd/mobilenet_v2/1">SSD</a>.
  */
-public class TfSsdTranslator extends SingleShotDetectionTranslator {
+public class TfSsdTranslator extends ObjectDetectionTranslator {
 
     private int maxBoxes;
-    private float threshHold;
+    private String numDetectionsOutputName;
+    private String boundingBoxOutputName;
+    private String scoresOutputName;
+    private String classLabelOutputName;
 
     /**
      * Creates the SSD translator from the given builder.
@@ -43,9 +47,13 @@ public class TfSsdTranslator extends SingleShotDetectionTranslator {
     protected TfSsdTranslator(Builder builder) {
         super(builder);
         this.maxBoxes = builder.maxBoxes;
-        this.threshHold = builder.getThreshold();
+        this.numDetectionsOutputName = builder.numDetectionsOutputName;
+        this.boundingBoxOutputName = builder.boundingBoxOutputName;
+        this.scoresOutputName = builder.scoresOutputName;
+        this.classLabelOutputName = builder.classLabelOutputName;
     }
 
+    /** {@inheritDoc} */
     @Override
     public NDList processInput(TranslatorContext ctx, Image input) {
         // TensorFlow object detection model does not support batch input
@@ -55,6 +63,7 @@ public class TfSsdTranslator extends SingleShotDetectionTranslator {
         return new NDList(super.processInput(ctx, input).get(0).expandDims(0));
     }
 
+    /** {@inheritDoc} */
     @Override
     public Batchifier getBatchifier() {
         return null;
@@ -63,24 +72,24 @@ public class TfSsdTranslator extends SingleShotDetectionTranslator {
     /** {@inheritDoc} */
     @Override
     public DetectedObjects processOutput(TranslatorContext ctx, NDList list) {
-        // output orders are not guaranteed
         int len = (int) list.get(0).getShape().get(0);
+        for (NDArray array : list) {
+            if (numDetectionsOutputName.equals(array.getName())) {
+                len = array.toArray()[0].intValue();
+                break;
+            }
+        }
         float[] scores = new float[len];
         long[] classIds = new long[len];
 
         NDArray boundingBoxes = list.get(0);
         for (NDArray array : list) {
-            DataType dType = array.getDataType();
-            int dim = array.getShape().dimension();
-            if (dType == DataType.FLOAT32 && dim == 1) {
+            if (scoresOutputName.equals(array.getName())) {
                 scores = array.toFloatArray();
-            } else if (dType == DataType.FLOAT32 && dim == 2) {
+            } else if (boundingBoxOutputName.equals(array.getName())) {
                 boundingBoxes = array;
-            } else if (dType == DataType.INT64 && dim == 1) {
-                classIds = array.toLongArray();
-            } else {
-                throw new IllegalStateException(
-                        "Unexpected result NDArray type:" + dType + ", and dim: " + dim);
+            } else if (classLabelOutputName.equals(array.getName())) {
+                classIds = Arrays.stream(array.toArray()).mapToLong(Number::longValue).toArray();
             }
         }
         List<String> retNames = new ArrayList<>();
@@ -92,7 +101,7 @@ public class TfSsdTranslator extends SingleShotDetectionTranslator {
             long classId = classIds[i];
             double score = scores[i];
             // classId starts from 0, -1 means background
-            if (classId >= 0 && score > threshHold) {
+            if (classId >= 0 && score > threshold) {
                 if (classId >= classes.size()) {
                     throw new AssertionError("Unexpected index: " + classId);
                 }
@@ -115,7 +124,7 @@ public class TfSsdTranslator extends SingleShotDetectionTranslator {
     }
 
     /**
-     * Creates a builder to build a {@code TfSSDTranslatorBuilder}.
+     * Creates a builder to build a {@code TfSSDTranslator}.
      *
      * @return a new builder
      */
@@ -123,10 +132,78 @@ public class TfSsdTranslator extends SingleShotDetectionTranslator {
         return new Builder();
     }
 
-    /** The builder for TensorFlow SSD translator. */
-    public static class Builder extends SingleShotDetectionTranslator.Builder {
+    /**
+     * Creates a builder to build a {@code TfSSDTranslator} with specified arguments.
+     *
+     * @param arguments arguments to specify builder options
+     * @return a new builder
+     */
+    public static Builder builder(Map<String, ?> arguments) {
+        Builder builder = new Builder();
+        builder.configPreProcess(arguments);
+        builder.configPostProcess(arguments);
 
-        private int maxBoxes = 10;
+        return builder;
+    }
+
+    /** The builder for TensorFlow SSD translator. */
+    public static class Builder extends ObjectDetectionBuilder<Builder> {
+
+        int maxBoxes = 10;
+        String numDetectionsOutputName = "num_detections";
+        String boundingBoxOutputName = "detection_boxes";
+        String scoresOutputName = "detection_scores";
+        String classLabelOutputName = "detection_class_labels";
+
+        /**
+         * Set the output name used for number of detections.
+         *
+         * <p>You can find the output names of TensorFlow models by calling `model.describeOutput()`
+         * after loading it.
+         *
+         * @param numDetectionsOutputName output name for number of detections
+         * @return this builder
+         */
+        public Builder optNumDetectionsOutputName(String numDetectionsOutputName) {
+            this.numDetectionsOutputName = numDetectionsOutputName;
+            return this;
+        }
+
+        /**
+         * Set the output name used for bounding boxes. You can find the output names of TensorFlow
+         * models by calling `model.describeOutput()` after loading it.
+         *
+         * @param boundingBoxOutputName output name for bounding boxes
+         * @return this builder
+         */
+        public Builder optBoundingBoxOutputName(String boundingBoxOutputName) {
+            this.boundingBoxOutputName = boundingBoxOutputName;
+            return this;
+        }
+
+        /**
+         * Set the output name used for detection scores. You can find the output names of
+         * TensorFlow models by calling `model.describeOutput()` after loading it.
+         *
+         * @param scoresOutputName output name for detection scores
+         * @return this builder
+         */
+        public Builder optScoresOutputName(String scoresOutputName) {
+            this.scoresOutputName = scoresOutputName;
+            return this;
+        }
+
+        /**
+         * Set the output name used for class label. You can find the output names of TensorFlow
+         * models by calling `model.describeOutput()` after loading it.
+         *
+         * @param classLabelOutputName output name for class label
+         * @return this builder
+         */
+        public Builder optClassLabelOutputName(String classLabelOutputName) {
+            this.classLabelOutputName = classLabelOutputName;
+            return this;
+        }
 
         /**
          * Set the maximum number of bounding boxes to display.
@@ -139,12 +216,38 @@ public class TfSsdTranslator extends SingleShotDetectionTranslator {
             return this;
         }
 
+        /** {@inheritDoc} */
+        @Override
+        protected Builder self() {
+            return this;
+        }
+
+        /** {@inheritDoc} */
+        @Override
+        protected void configPreProcess(Map<String, ?> arguments) {
+            super.configPreProcess(arguments);
+        }
+
+        /** {@inheritDoc} */
+        @Override
+        protected void configPostProcess(Map<String, ?> arguments) {
+            super.configPostProcess(arguments);
+            maxBoxes = getIntValue(arguments, "maxBoxes", 10);
+            threshold = getFloatValue(arguments, "threshold", 0.4f);
+            numDetectionsOutputName =
+                    getStringValue(arguments, "numDetectionsOutputName", "num_detections");
+            boundingBoxOutputName =
+                    getStringValue(arguments, "boundingBoxOutputName", "detection_boxes");
+            scoresOutputName = getStringValue(arguments, "scoresOutputName", "detection_scores");
+            classLabelOutputName =
+                    getStringValue(arguments, "classLabelOutputName", "detection_class_labels");
+        }
+
         /**
          * Builds the translator.
          *
          * @return the new translator
          */
-        @Override
         public TfSsdTranslator build() {
             validate();
             return new TfSsdTranslator(this);

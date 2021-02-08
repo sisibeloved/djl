@@ -1,11 +1,5 @@
 group "ai.djl.mxnet"
 
-repositories {
-    maven {
-        url 'https://oss.sonatype.org/content/repositories/snapshots/'
-    }
-}
-
 dependencies {
     api project(":api")
 
@@ -18,8 +12,6 @@ dependencies {
         exclude group: "junit", module: "junit"
     }
     testImplementation "org.slf4j:slf4j-simple:${slf4j_version}"
-    testImplementation "org.powermock:powermock-module-testng:${powermock_version}"
-    testImplementation "org.powermock:powermock-api-mockito2:${powermock_version}"
 }
 
 sourceSets {
@@ -33,7 +25,7 @@ sourceSets {
 checkstyleMain.source = 'src/main/java'
 pmdMain.source = 'src/main/java'
 
-task jnarator(dependsOn: [":mxnet:jnarator:jar", "checkHeaderFile"]) {
+task jnarator(dependsOn: ":mxnet:jnarator:jar") {
     outputs.dir "${project.buildDir}/generated-src"
     doLast {
         File jnaGenerator = project(":mxnet:jnarator").jar.outputs.files.singleFile
@@ -105,8 +97,8 @@ publishing {
     publications {
         maven(MavenPublication) {
             pom {
-                name = "MXNet Engine Adapter"
-                description = "MXNet Engine Adapter for DJL"
+                name = "DJL Engine Adapter for Apache MXNet"
+                description = "Deep Java Library (DJL) Engine Adapter for Apache MXNet"
                 url = "http://www.djl.ai/mxnet/${project.name}"
             }
         }

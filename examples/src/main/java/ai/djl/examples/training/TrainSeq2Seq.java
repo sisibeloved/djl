@@ -14,8 +14,8 @@ package ai.djl.examples.training;
 
 import ai.djl.Device;
 import ai.djl.Model;
-import ai.djl.basicdataset.TatoebaEnglishFrenchDataset;
-import ai.djl.basicdataset.TextDataset;
+import ai.djl.basicdataset.nlp.TatoebaEnglishFrenchDataset;
+import ai.djl.basicdataset.nlp.TextDataset;
 import ai.djl.basicdataset.utils.TextData.Configuration;
 import ai.djl.basicmodelzoo.nlp.SimpleTextDecoder;
 import ai.djl.basicmodelzoo.nlp.SimpleTextEncoder;
@@ -43,7 +43,7 @@ import ai.djl.training.TrainingResult;
 import ai.djl.training.dataset.Batch;
 import ai.djl.training.dataset.Dataset;
 import ai.djl.training.evaluator.Accuracy;
-import ai.djl.training.listener.CheckpointsTrainingListener;
+import ai.djl.training.listener.SaveModelTrainingListener;
 import ai.djl.training.listener.TrainingListener;
 import ai.djl.training.loss.MaskedSoftmaxCrossEntropyLoss;
 import ai.djl.training.util.ProgressBar;
@@ -54,19 +54,21 @@ import java.util.Arrays;
 import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import org.apache.commons.cli.ParseException;
 
 public final class TrainSeq2Seq {
 
     private TrainSeq2Seq() {}
 
-    public static void main(String[] args) throws IOException, ParseException, TranslateException {
+    public static void main(String[] args) throws IOException, TranslateException {
         TrainSeq2Seq.runExample(args);
     }
 
-    public static TrainingResult runExample(String[] args)
-            throws IOException, ParseException, TranslateException {
+    public static TrainingResult runExample(String[] args) throws IOException, TranslateException {
         Arguments arguments = Arguments.parseArgs(args);
+        if (arguments == null) {
+            return null;
+        }
+
         ExecutorService executorService = Executors.newFixedThreadPool(8);
         try (Model model = Model.newInstance("seq2seqMTEn-Fr")) {
             // get training and validation dataset
@@ -120,16 +122,20 @@ public final class TrainSeq2Seq {
                         sourceEmbedding,
                         new LSTM.Builder()
                                 .setStateSize(32)
-                                .setNumStackedLayers(2)
+                                .setNumLayers(2)
                                 .optDropRate(0)
+                                .optBatchFirst(true)
+                                .optReturnState(true)
                                 .build());
         SimpleTextDecoder simpleTextDecoder =
                 new SimpleTextDecoder(
                         targetEmbedding,
                         new LSTM.Builder()
                                 .setStateSize(32)
-                                .setNumStackedLayers(2)
+                                .setNumLayers(2)
                                 .optDropRate(0)
+                                .optBatchFirst(true)
+                                .optReturnState(false)
                                 .build(),
                         vocabSize);
         return new EncoderDecoder(simpleTextEncoder, simpleTextDecoder);
@@ -137,7 +143,7 @@ public final class TrainSeq2Seq {
 
     public static DefaultTrainingConfig setupTrainingConfig(Arguments arguments) {
         String outputDir = arguments.getOutputDir();
-        CheckpointsTrainingListener listener = new CheckpointsTrainingListener(outputDir);
+        SaveModelTrainingListener listener = new SaveModelTrainingListener(outputDir);
         listener.setSaveModelCallback(
                 trainer -> {
                     TrainingResult result = trainer.getTrainingResult();

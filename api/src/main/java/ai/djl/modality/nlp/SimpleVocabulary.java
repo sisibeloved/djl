@@ -12,14 +12,19 @@
  */
 package ai.djl.modality.nlp;
 
+import ai.djl.util.Utils;
+import java.io.IOException;
+import java.io.InputStream;
+import java.net.URL;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashSet;
-import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Function;
 
 /** The simple implementation of Vocabulary. */
 public class SimpleVocabulary implements Vocabulary {
@@ -31,11 +36,11 @@ public class SimpleVocabulary implements Vocabulary {
     private String unknownToken;
 
     /**
-     * Create a {@code SimpleVocabulary} object with a {@link VocabularyBuilder}.
+     * Create a {@code SimpleVocabulary} object with a {@link Builder}.
      *
-     * @param builder the {@link VocabularyBuilder} to build the vocabulary with
+     * @param builder the {@link Builder} to build the vocabulary with
      */
-    public SimpleVocabulary(VocabularyBuilder builder) {
+    public SimpleVocabulary(Builder builder) {
         reservedTokens = builder.reservedTokens;
         minFrequency = builder.minFrequency;
         unknownToken = builder.unknownToken;
@@ -86,6 +91,12 @@ public class SimpleVocabulary implements Vocabulary {
 
     /** {@inheritDoc} */
     @Override
+    public boolean contains(String token) {
+        return tokens.containsKey(token);
+    }
+
+    /** {@inheritDoc} */
+    @Override
     public String getToken(long index) {
         if (index < 0 || index >= indexToToken.size()) {
             return unknownToken;
@@ -111,12 +122,24 @@ public class SimpleVocabulary implements Vocabulary {
         return tokens.size();
     }
 
+    /**
+     * Creates a new builder to build a {@code SimpleVocabulary}.
+     *
+     * @return a new builder
+     */
+    public static Builder builder() {
+        return new Builder();
+    }
+
     /** Builder class that is used to build the {@link SimpleVocabulary}. */
-    public static class VocabularyBuilder {
-        protected List<List<String>> sentences = new LinkedList<>();
-        protected Set<String> reservedTokens = new HashSet<>();
-        protected int minFrequency = 10;
-        protected String unknownToken = "<unk>";
+    public static final class Builder {
+
+        List<List<String>> sentences = new ArrayList<>();
+        Set<String> reservedTokens = new HashSet<>();
+        int minFrequency = 10;
+        String unknownToken = "<unk>";
+
+        private Builder() {}
 
         /**
          * Sets the optional parameter that specifies the minimum frequency to consider a token to
@@ -126,7 +149,7 @@ public class SimpleVocabulary implements Vocabulary {
          *     SimpleVocabulary}
          * @return this {@code VocabularyBuilder}
          */
-        public VocabularyBuilder optMinFrequency(int minFrequency) {
+        public Builder optMinFrequency(int minFrequency) {
             this.minFrequency = minFrequency;
             return this;
         }
@@ -137,7 +160,7 @@ public class SimpleVocabulary implements Vocabulary {
          * @param unknownToken the string value of the unknown token
          * @return this {@code VocabularyBuilder}
          */
-        public VocabularyBuilder optUnknownToken(String unknownToken) {
+        public Builder optUnknownToken(String unknownToken) {
             this.unknownToken = unknownToken;
             return this;
         }
@@ -148,7 +171,7 @@ public class SimpleVocabulary implements Vocabulary {
          * @param reservedTokens the list of reserved tokens
          * @return this {@code VocabularyBuilder}
          */
-        public VocabularyBuilder optReservedTokens(Collection<String> reservedTokens) {
+        public Builder optReservedTokens(Collection<String> reservedTokens) {
             this.reservedTokens.addAll(reservedTokens);
             return this;
         }
@@ -159,7 +182,7 @@ public class SimpleVocabulary implements Vocabulary {
          * @param sentence the sentence to be added
          * @return this {@code VocabularyBuilder}
          */
-        public VocabularyBuilder add(List<String> sentence) {
+        public Builder add(List<String> sentence) {
             this.sentences.add(sentence);
             return this;
         }
@@ -170,9 +193,54 @@ public class SimpleVocabulary implements Vocabulary {
          * @param sentences the list of sentences to be added
          * @return this {@code VocabularyBuilder}
          */
-        public VocabularyBuilder addAll(List<List<String>> sentences) {
+        public Builder addAll(List<List<String>> sentences) {
             this.sentences.addAll(sentences);
             return this;
+        }
+
+        /**
+         * Adds a text vocabulary to the {@link SimpleVocabulary}.
+         *
+         * <pre>
+         *   Example text file(vocab.txt):
+         *   token1
+         *   token2
+         *   token3
+         *   will be mapped to index of 0 1 2
+         * </pre>
+         *
+         * @param path the path to the text file
+         * @return this {@code VocabularyBuilder}
+         * @throws IOException if failed to read vocabulary file
+         */
+        public Builder addFromTextFile(Path path) throws IOException {
+            add(Utils.readLines(path, true));
+            return this;
+        }
+
+        /**
+         * Adds a text vocabulary to the {@link SimpleVocabulary}.
+         *
+         * @param url the text file url
+         * @return this {@code VocabularyBuilder}
+         * @throws IOException if failed to read vocabulary file
+         */
+        public Builder addFromTextFile(URL url) throws IOException {
+            try (InputStream is = url.openStream()) {
+                add(Utils.readLines(is, true));
+            }
+            return this;
+        }
+
+        /**
+         * Adds a customized vocabulary to the {@link SimpleVocabulary}.
+         *
+         * @param url the text file url
+         * @param lambda the function to parse the vocabulary file
+         * @return this {@code VocabularyBuilder}
+         */
+        public Builder addFromCustomizedFile(URL url, Function<URL, List<String>> lambda) {
+            return add(lambda.apply(url));
         }
 
         /**

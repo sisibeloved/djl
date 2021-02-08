@@ -21,6 +21,8 @@ import ai.djl.ndarray.types.DataType;
 import ai.djl.ndarray.types.Shape;
 import ai.djl.ndarray.types.SparseFormat;
 import ai.djl.testing.Assertions;
+import ai.djl.util.Pair;
+import ai.djl.util.PairList;
 import java.nio.FloatBuffer;
 import java.util.stream.IntStream;
 import org.testng.Assert;
@@ -95,11 +97,32 @@ public class NDArrayCreationOpTest {
     }
 
     @Test
+    public void testCreateCooMatrix() {
+        try (NDManager manager = NDManager.newBaseManager()) {
+            long[][] indices = {{0, 1, 1}, {2, 0, 2}};
+            float[] values = {3, 4, 5};
+            FloatBuffer buf = FloatBuffer.wrap(values);
+            NDArray nd = manager.createCoo(buf, indices, new Shape(2, 4));
+            NDArray expected =
+                    manager.create(new float[] {0, 0, 3, 0, 4, 0, 5, 0}, new Shape(2, 4));
+            Assert.assertTrue(nd.isSparse());
+            Assert.assertEquals(nd.toDense(), expected);
+        }
+    }
+
+    @Test
     public void testCreateNDArrayAndConvertToSparse() {
         try (NDManager manager = NDManager.newBaseManager()) {
             NDArray nd = manager.ones(new Shape(3, 5));
-            NDArray sparse = nd.toSparse(SparseFormat.CSR);
-            Assert.assertSame(sparse.getSparseFormat(), SparseFormat.CSR);
+            NDArray sparse;
+            if ("MXNet".equals(Engine.getInstance().getEngineName())) {
+                sparse = nd.toSparse(SparseFormat.CSR);
+                Assert.assertSame(sparse.getSparseFormat(), SparseFormat.CSR);
+            } else if ("PyTorch".equals(Engine.getInstance().getEngineName())) {
+                sparse = nd.toSparse(SparseFormat.COO);
+                Assert.assertSame(sparse.getSparseFormat(), SparseFormat.COO);
+            }
+            throw new UnsupportedOperationException("Engine not supported");
         }
     }
 
@@ -339,17 +362,44 @@ public class NDArrayCreationOpTest {
     }
 
     @Test
-    public void testRandomGeneration() {
+    public void testRandomInteger() {
+        PairList<Long, Long> testCases = new PairList<>();
+        testCases.add(0L, 2L);
+        testCases.add(1000000L, 2000000L);
+        testCases.add(-1234567L, 1234567L);
+        try (NDManager manager = NDManager.newBaseManager()) {
+            for (Pair<Long, Long> testCase : testCases) {
+                long low = testCase.getKey();
+                long high = testCase.getValue();
+                NDArray randLong =
+                        manager.randomInteger(low, high, new Shape(100, 100), DataType.INT64);
+                double mean = randLong.toType(DataType.FLOAT64, false).mean().getDouble();
+                long max = randLong.max().getLong();
+                long min = randLong.min().getLong();
+                Assert.assertTrue(max < high);
+                Assert.assertTrue(min >= low);
+                Assert.assertTrue(mean >= low && mean < high);
+            }
+        }
+    }
+
+    @Test
+    public void testRandomUniform() {
         try (NDManager manager = NDManager.newBaseManager()) {
             NDArray uniform = manager.randomUniform(0, 10, new Shape(1000, 1000));
             Assert.assertTrue(uniform.min().getFloat() >= 0f);
-            Assert.assertTrue(uniform.max().getFloat() < 100f);
+            Assert.assertTrue(uniform.max().getFloat() < 10f);
             Assertions.assertAlmostEquals(uniform.mean().getFloat(), 5f, 1e-2f, 1e-2f);
+        }
+    }
 
+    @Test
+    public void testRandomNormal() {
+        try (NDManager manager = NDManager.newBaseManager()) {
             NDArray normal = manager.randomNormal(new Shape(1000, 1000));
             NDArray mean = normal.mean();
             NDArray std = normal.sub(mean).pow(2).mean();
-            Assertions.assertAlmostEquals(normal.mean().getFloat(), 0f, 2e-2f, 2e-2f);
+            Assertions.assertAlmostEquals(mean.getFloat(), 0f, 2e-2f, 2e-2f);
             Assertions.assertAlmostEquals(std.getFloat(), 1f, 2e-2f, 2e-2f);
         }
     }
@@ -357,7 +407,7 @@ public class NDArrayCreationOpTest {
     @Test
     public void testFixedSeed() {
         try (NDManager manager = NDManager.newBaseManager()) {
-            if (Engine.getInstance().getEngineName().equals("TensorFlow")) {
+            if ("TensorFlow".equals(Engine.getInstance().getEngineName())) {
                 throw new SkipException("TensorFlow fixed random seed require restart process.");
             }
             int fixedSeed = 1234;

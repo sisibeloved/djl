@@ -49,13 +49,13 @@ public class Prelu extends AbstractBlock {
 
     /** {@inheritDoc} */
     @Override
-    public NDList forward(
+    protected NDList forwardInternal(
             ParameterStore parameterStore,
             NDList inputs,
             boolean training,
             PairList<String, Object> params) {
         NDArray input = inputs.singletonOrThrow();
-        NDArray alphaArr = parameterStore.getValue(alpha, input.getDevice());
+        NDArray alphaArr = parameterStore.getValue(alpha, input.getDevice(), training);
         return prelu(input, alphaArr);
     }
 

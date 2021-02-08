@@ -155,7 +155,7 @@ public class Shape {
      * @throws IllegalArgumentException thrown if passed an invalid dimension
      */
     public long size(int... dimensions) {
-        int total = 1;
+        long total = 1;
         for (long d : dimensions) {
             if (d < 0 || d >= shape.length) {
                 throw new IllegalArgumentException("Invalid dimension " + d);
@@ -174,7 +174,7 @@ public class Shape {
      * @return the total size or -1 for indeterminate size
      */
     public long size() {
-        int total = 1;
+        long total = 1;
         for (long v : shape) {
             if (v == -1) {
                 return -1;
@@ -269,7 +269,7 @@ public class Shape {
     }
 
     /**
-     * Joins a this shape with axes.
+     * Joins this shape with axes.
      *
      * @param axes the axes to join
      * @return the joined {@code Shape}
@@ -279,7 +279,7 @@ public class Shape {
     }
 
     /**
-     * Joins a this shape with specified {@code other} shape.
+     * Joins this shape with specified {@code other} shape.
      *
      * @param other the shape to join
      * @return the joined {@code Shape}
@@ -301,6 +301,20 @@ public class Shape {
             throw new IndexOutOfBoundsException("can't get value from scalar shape.");
         }
         return shape[0];
+    }
+
+    /**
+     * Returns the tail index of the shape.
+     *
+     * @return the tail index of the shape
+     * @throws IndexOutOfBoundsException Thrown if the shape is empty
+     */
+    public long tail() {
+        // scalar case
+        if (shape.length == 0) {
+            throw new IndexOutOfBoundsException("can't get value from scalar shape.");
+        }
+        return shape[shape.length - 1];
     }
 
     /**

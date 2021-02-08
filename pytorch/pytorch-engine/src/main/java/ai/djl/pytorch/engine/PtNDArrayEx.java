@@ -20,6 +20,7 @@ import ai.djl.ndarray.index.NDArrayIndexer;
 import ai.djl.ndarray.internal.NDArrayEx;
 import ai.djl.ndarray.types.DataType;
 import ai.djl.ndarray.types.Shape;
+import ai.djl.nn.recurrent.RNN;
 import ai.djl.pytorch.jni.JniUtils;
 import ai.djl.util.PairList;
 import java.util.List;
@@ -220,9 +221,6 @@ public class PtNDArrayEx implements NDArrayEx {
         if (padding.size() != 0) {
             throw new IllegalArgumentException("padding is not supported for PyTorch engine");
         }
-        if (array.getShape().dimension() - 2 == 3) {
-            throw new IllegalArgumentException("3D lpPool is not supported in PyTorch engine");
-        }
         return JniUtils.lpPool(array, normType, kernelShape, stride, ceilMode);
     }
 
@@ -234,7 +232,20 @@ public class PtNDArrayEx implements NDArrayEx {
                         array, normType, array.getShape().slice(2), getPoolShape(array), false)) {
             return (PtNDArray) temp.reshape(array.getShape().slice(0, 2));
         }
-        //        throw new UnsupportedOperationException("Not implemented");
+    }
+
+    /** {@inheritDoc} */
+    @Override
+    public void adadeltaUpdate(
+            NDList inputs,
+            NDList weights,
+            float weightDecay,
+            float rescaleGrad,
+            float clipGrad,
+            float rho,
+            float epsilon) {
+        throw new UnsupportedOperationException(
+                "AdaDelta optimzier is not supported for PyTorch engine!");
     }
 
     /** {@inheritDoc} */
@@ -357,6 +368,20 @@ public class PtNDArrayEx implements NDArrayEx {
 
     /** {@inheritDoc} */
     @Override
+    public NDList deconvolution(
+            NDArray input,
+            NDArray weight,
+            NDArray bias,
+            Shape stride,
+            Shape padding,
+            Shape outPadding,
+            Shape dilation,
+            int groups) {
+        throw new UnsupportedOperationException("Not implemented");
+    }
+
+    /** {@inheritDoc} */
+    @Override
     public NDList linear(NDArray input, NDArray weight, NDArray bias) {
         return new NDList(JniUtils.linear((PtNDArray) input, (PtNDArray) weight, (PtNDArray) bias));
     }
@@ -438,37 +463,80 @@ public class PtNDArrayEx implements NDArrayEx {
     /** {@inheritDoc} */
     @Override
     public NDList rnn(
-            NDList inputs,
-            String mode,
-            long stateSize,
-            float dropRate,
-            int numStackedLayers,
-            boolean useSequenceLength,
-            boolean useBidirectional,
-            boolean stateOutputs,
-            PairList<String, Object> additional) {
-        throw new UnsupportedOperationException("Not implemented");
+            NDArray input,
+            NDArray state,
+            NDList params,
+            boolean hasBiases,
+            int numLayers,
+            RNN.Activation activation,
+            double dropRate,
+            boolean training,
+            boolean bidirectional,
+            boolean batchFirst) {
+        return JniUtils.rnn(
+                (PtNDArray) input,
+                (PtNDArray) state,
+                params,
+                hasBiases,
+                numLayers,
+                activation,
+                dropRate,
+                training,
+                bidirectional,
+                batchFirst);
+    }
+
+    /** {@inheritDoc} */
+    @Override
+    public NDList gru(
+            NDArray input,
+            NDArray state,
+            NDList params,
+            boolean hasBiases,
+            int numLayers,
+            double dropRate,
+            boolean training,
+            boolean bidirectional,
+            boolean batchFirst) {
+        return JniUtils.gru(
+                (PtNDArray) input,
+                (PtNDArray) state,
+                params,
+                hasBiases,
+                numLayers,
+                dropRate,
+                training,
+                bidirectional,
+                batchFirst);
     }
 
     /** {@inheritDoc} */
     @Override
     public NDList lstm(
-            NDList inputs,
-            long stateSize,
-            float dropRate,
-            int numStackedLayers,
-            boolean useSequenceLength,
-            boolean useBidirectional,
-            boolean stateOutputs,
-            double lstmStateClipMin,
-            double lstmStateClipMax,
-            PairList<String, Object> additional) {
-        throw new UnsupportedOperationException("Not implemented");
+            NDArray input,
+            NDList states,
+            NDList params,
+            boolean hasBiases,
+            int numLayers,
+            double dropRate,
+            boolean training,
+            boolean bidirectional,
+            boolean batchFirst) {
+        return JniUtils.lstm(
+                (PtNDArray) input,
+                states,
+                params,
+                hasBiases,
+                numLayers,
+                dropRate,
+                training,
+                bidirectional,
+                batchFirst);
     }
 
     /** {@inheritDoc} */
     @Override
-    public PtNDArray resize(int width, int height) {
+    public PtNDArray resize(int width, int height, int interpolation) {
         // create subManager to help close intermediate NDArray
         try (NDManager subManager = array.getManager().newSubManager()) {
             array.attach(subManager);
@@ -485,8 +553,11 @@ public class PtNDArrayEx implements NDArrayEx {
             }
             result = result.transpose(0, 3, 1, 2);
             result =
-                    JniUtils.upsampleBilinear2d(
-                                    (PtNDArray) result, new long[] {height, width}, true)
+                    JniUtils.interpolate(
+                                    (PtNDArray) result,
+                                    new long[] {height, width},
+                                    getInterpolationMode(interpolation),
+                                    false)
                             .transpose(0, 2, 3, 1);
             if (dim == 3) {
                 result = result.squeeze(0);
@@ -497,26 +568,31 @@ public class PtNDArrayEx implements NDArrayEx {
         }
     }
 
+    /** {@inheritDoc} */
     @Override
     public NDArray randomFlipLeftRight() {
         throw new UnsupportedOperationException("Not implemented");
     }
 
+    /** {@inheritDoc} */
     @Override
     public NDArray randomFlipTopBottom() {
         throw new UnsupportedOperationException("Not implemented");
     }
 
+    /** {@inheritDoc} */
     @Override
     public NDArray randomBrightness(float brightness) {
         throw new UnsupportedOperationException("Not implemented");
     }
 
+    /** {@inheritDoc} */
     @Override
     public NDArray randomHue(float hue) {
         throw new UnsupportedOperationException("Not implemented");
     }
 
+    /** {@inheritDoc} */
     @Override
     public NDArray randomColorJitter(
             float brightness, float contrast, float saturation, float hue) {
@@ -543,7 +619,7 @@ public class PtNDArrayEx implements NDArrayEx {
     /** {@inheritDoc} */
     @Override
     public PtNDArray stack(NDList arrays, int axis) {
-        NDArray[] srcArray = new NDArray[arrays.size() + 1];
+        PtNDArray[] srcArray = new PtNDArray[arrays.size() + 1];
         srcArray[0] = array;
         System.arraycopy(arrays.toArray(new NDArray[0]), 0, srcArray, 1, arrays.size());
         return JniUtils.stack(srcArray, axis);
@@ -554,7 +630,7 @@ public class PtNDArrayEx implements NDArrayEx {
     public PtNDArray concat(NDList list, int axis) {
         NDUtils.checkConcatInput(list);
 
-        NDArray[] srcArray = new NDArray[list.size() + 1];
+        PtNDArray[] srcArray = new PtNDArray[list.size() + 1];
         srcArray[0] = array;
         System.arraycopy(list.toArray(new NDArray[0]), 0, srcArray, 1, list.size());
         return JniUtils.cat(srcArray, axis);
@@ -612,6 +688,24 @@ public class PtNDArrayEx implements NDArrayEx {
                 return new Shape(1, 1, 1);
             default:
                 throw new IllegalArgumentException("the input dimension should be in [3, 5]");
+        }
+    }
+
+    // Here is the list of PyTorch C++ interpolation mapping: kNearest, kLinear, kBilinear,
+    // kBicubic, kTrilinear, kArea
+    private int getInterpolationMode(int interpolation) {
+        switch (interpolation) {
+            case 0:
+                return 0;
+            case 1:
+                return 2;
+            case 2:
+                return 5;
+            case 3:
+                return 3;
+            default:
+                throw new UnsupportedOperationException(
+                        "The kind of interpolation is not supported.");
         }
     }
 }

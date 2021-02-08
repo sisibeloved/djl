@@ -17,15 +17,19 @@ import ai.djl.util.Utils;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.lang.reflect.Method;
 import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Enumeration;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Properties;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -54,17 +58,26 @@ public final class LibUtils {
     private static final String NATIVE_LIB_NAME = "torch";
 
     private static final Pattern VERSION_PATTERN =
-            Pattern.compile("(\\d+\\.\\d+\\.\\d+(-\\w)?)(-SNAPSHOT)?(-\\d+)?");
+            Pattern.compile("(\\d+\\.\\d+\\.\\d+(-[a-z]+)?)(-SNAPSHOT)?(-\\d+)?");
 
     private LibUtils() {}
 
     public static void loadLibrary() {
         // TODO workaround to make it work on Android Studio
         // It should search for several places to find the native library
-        if (System.getProperty("java.vendor.url").equals("http://www.android.com/")) {
+        if ("http://www.android.com/".equals(System.getProperty("java.vendor.url"))) {
             System.loadLibrary(LIB_NAME); // NOPMD
             return;
         }
+        String libName = getLibName();
+        logger.debug("Loading pytorch library from: {}", libName);
+        if (System.getProperty("os.name").startsWith("Win")) {
+            loadWinDependencies(libName);
+        }
+        loadNativeLibrary(libName);
+    }
+
+    public static String getLibName() {
         String libName = findOverrideLibrary();
         if (libName == null) {
             AtomicBoolean fallback = new AtomicBoolean(false);
@@ -75,11 +88,7 @@ public final class LibUtils {
                 throw new IllegalStateException("Native library not found");
             }
         }
-        logger.debug("Loading pytorch library from: {}", libName);
-        if (System.getProperty("os.name").startsWith("Win")) {
-            loadWinDependencies(libName);
-        }
-        System.load(libName); // NOPMD
+        return libName;
     }
 
     private static void loadWinDependencies(String libName) {
@@ -87,28 +96,52 @@ public final class LibUtils {
         if (libDir == null) {
             throw new IllegalArgumentException("Invalid library path!");
         }
+
+        Set<String> loadLater =
+                new HashSet<>(
+                        Arrays.asList(
+                                "c10_cuda.dll",
+                                "torch.dll",
+                                "torch_cpu.dll",
+                                "torch_cuda.dll",
+                                "fbgemm.dll"));
+
         try (Stream<Path> paths = Files.walk(libDir)) {
             paths.filter(
                             path -> {
                                 String name = path.getFileName().toString();
-                                return !"c10_cuda.dll".equals(name)
-                                        && !"torch.dll".equals(name)
-                                        && !"torch_cpu.dll".equals(name)
-                                        && !"torch_cuda.dll".equals(name)
-                                        && !"fbgemm.dll".equals(name)
+                                return !loadLater.contains(name)
                                         && Files.isRegularFile(path)
-                                        && !name.endsWith("djl_torch.dll");
+                                        && !name.endsWith("djl_torch.dll")
+                                        && !name.startsWith("cudnn");
                             })
                     .map(path -> path.toAbsolutePath().toString())
                     .forEach(System::load);
-            System.load(libDir.resolve("fbgemm.dll").toAbsolutePath().toString());
-            System.load(libDir.resolve("torch_cpu.dll").toAbsolutePath().toString());
+            loadNativeLibrary(libDir.resolve("fbgemm.dll").toAbsolutePath().toString());
+            loadNativeLibrary(libDir.resolve("torch_cpu.dll").toAbsolutePath().toString());
             if (Files.exists(libDir.resolve("c10_cuda.dll"))) {
+                if (Files.exists((libDir.resolve("cudnn64_8.dll")))) {
+                    loadNativeLibrary(libDir.resolve("cudnn64_8.dll").toAbsolutePath().toString());
+                    loadNativeLibrary(
+                            libDir.resolve("cudnn_ops_infer64_8.dll").toAbsolutePath().toString());
+                    loadNativeLibrary(
+                            libDir.resolve("cudnn_ops_train64_8.dll").toAbsolutePath().toString());
+                    loadNativeLibrary(
+                            libDir.resolve("cudnn_cnn_infer64_8.dll").toAbsolutePath().toString());
+                    loadNativeLibrary(
+                            libDir.resolve("cudnn_cnn_train64_8.dll").toAbsolutePath().toString());
+                    loadNativeLibrary(
+                            libDir.resolve("cudnn_adv_infer64_8.dll").toAbsolutePath().toString());
+                    loadNativeLibrary(
+                            libDir.resolve("cudnn_adv_train64_8.dll").toAbsolutePath().toString());
+                } else if (Files.exists((libDir.resolve("cudnn64_7.dll")))) {
+                    loadNativeLibrary(libDir.resolve("cudnn64_7.dll").toAbsolutePath().toString());
+                }
                 // Windows System.load is global load
-                System.load(libDir.resolve("c10_cuda.dll").toAbsolutePath().toString());
-                System.load(libDir.resolve("torch_cuda.dll").toAbsolutePath().toString());
+                loadNativeLibrary(libDir.resolve("c10_cuda.dll").toAbsolutePath().toString());
+                loadNativeLibrary(libDir.resolve("torch_cuda.dll").toAbsolutePath().toString());
             }
-            System.load(libDir.resolve("torch.dll").toAbsolutePath().toString());
+            loadNativeLibrary(libDir.resolve("torch.dll").toAbsolutePath().toString());
         } catch (IOException e) {
             throw new IllegalArgumentException("Folder not exist! " + libDir, e);
         }
@@ -162,16 +195,19 @@ public final class LibUtils {
         if (fallback || flavor.isEmpty()) {
             flavor = "cpu";
         }
+        Path precxx11Lib = nativeDir.resolve("libstdc++.so.6");
+        if (Files.exists(precxx11Lib)) {
+            flavor += "-precxx11"; // NOPMD
+        }
         Properties prop = new Properties();
         try (InputStream stream =
-                LibUtils.class.getResourceAsStream(
-                        "/jnilib/" + classifier + "/" + flavor + "/pytorch.properties")) {
+                LibUtils.class.getResourceAsStream("/jnilib/pytorch.properties")) {
             prop.load(stream);
         } catch (IOException e) {
             throw new IllegalStateException("Cannot find pytorch property file", e);
         }
         String version = prop.getProperty("version");
-        Path path = nativeDir.resolve(version + flavor + name);
+        Path path = nativeDir.resolve(version + '-' + flavor + '-' + name);
         if (Files.exists(path)) {
             return path.toAbsolutePath().toString();
         }
@@ -179,7 +215,7 @@ public final class LibUtils {
         Path tmp = null;
         try (InputStream stream =
                 LibUtils.class.getResourceAsStream(
-                        "/jnilib/" + classifier + "/" + flavor + "/" + name)) {
+                        "/jnilib/" + classifier + '/' + flavor + '/' + name)) {
             tmp = Files.createTempFile(nativeDir, "jni", "tmp");
             Files.copy(stream, tmp, StandardCopyOption.REPLACE_EXISTING);
             Utils.moveQuietly(tmp, path);
@@ -247,12 +283,16 @@ public final class LibUtils {
         Path tmp = null;
         String version = platform.getVersion();
         String flavor = platform.getFlavor();
+        // TODO: include precxx11 into native jar's flavor property
+        if (Arrays.asList(platform.getLibraries()).contains("libstdc++.so.6")) {
+            flavor += "-precxx11"; // NOPMD
+        }
         String classifier = platform.getClassifier();
         try {
             String libName = System.mapLibraryName(NATIVE_LIB_NAME);
             Path cacheDir = getCacheDir();
             logger.debug("Using cache dir: {}", cacheDir);
-            Path dir = cacheDir.resolve(version + flavor + '-' + classifier);
+            Path dir = cacheDir.resolve(version + '-' + flavor + '-' + classifier);
             Path path = dir.resolve(libName);
             if (Files.exists(path)) {
                 return dir.toAbsolutePath().toString();
@@ -278,6 +318,20 @@ public final class LibUtils {
         }
     }
 
+    private static void loadNativeLibrary(String path) {
+        String nativeHelper = System.getProperty("ai.djl.pytorch.native_helper");
+        if (nativeHelper != null && !nativeHelper.isEmpty()) {
+            try {
+                Class<?> clazz = Class.forName(nativeHelper);
+                Method method = clazz.getDeclaredMethod("load", String.class);
+                method.invoke(null, path);
+            } catch (ReflectiveOperationException e) {
+                throw new IllegalArgumentException("Invalid native_helper: " + nativeHelper, e);
+            }
+        }
+        System.load(path); // NOPMD
+    }
+
     private static String downloadPyTorch(Platform platform, AtomicBoolean fallback)
             throws IOException {
         String version = platform.getVersion();
@@ -291,7 +345,7 @@ public final class LibUtils {
         String libName = System.mapLibraryName(NATIVE_LIB_NAME);
         Path cacheDir = getCacheDir();
         logger.debug("Using cache dir: {}", cacheDir);
-        Path dir = cacheDir.resolve(version + flavor + '-' + classifier);
+        Path dir = cacheDir.resolve(version + '-' + flavor + '-' + classifier);
         Path path = dir.resolve(libName);
         if (Files.exists(path)) {
             return dir.toAbsolutePath().toString();
@@ -303,19 +357,19 @@ public final class LibUtils {
         if (!matcher.matches()) {
             throw new IllegalArgumentException("Unexpected version: " + version);
         }
-        String link = "https://djl-ai.s3.amazonaws.com/publish/pytorch-" + matcher.group(1);
+        String link = "https://publish.djl.ai/pytorch-" + matcher.group(1);
         Path tmp = null;
         try (InputStream is = new URL(link + "/files.txt").openStream()) {
             List<String> lines = Utils.readLines(is);
             if (flavor.startsWith("cu")
-                    && !lines.contains(flavor + '/' + os + "/native/lib/libtorch.so.gz")) {
+                    && !lines.contains(flavor + '/' + os + "/native/lib/" + libName + ".gz")) {
                 logger.warn("No matching cuda flavor for {} found: {}.", os, flavor);
                 // fallback to CPU
                 flavor = "cpu";
                 fallback.set(true);
 
                 // check again
-                dir = cacheDir.resolve(version + flavor + '-' + classifier);
+                dir = cacheDir.resolve(version + '-' + flavor + '-' + classifier);
                 path = dir.resolve(libName);
                 if (Files.exists(path)) {
                     return dir.toAbsolutePath().toString();
@@ -327,7 +381,7 @@ public final class LibUtils {
                 if (line.startsWith(flavor + '/' + os + '/')) {
                     URL url = new URL(link + '/' + line);
                     String fileName = line.substring(line.lastIndexOf('/') + 1, line.length() - 3);
-                    logger.info("Downloading {} ...", fileName);
+                    logger.info("Downloading {} ...", url);
                     try (InputStream fis = new GZIPInputStream(url.openStream())) {
                         Files.copy(fis, tmp.resolve(fileName), StandardCopyOption.REPLACE_EXISTING);
                     }
@@ -353,12 +407,11 @@ public final class LibUtils {
                     cacheDir = System.getenv("DJL_CACHE_DIR");
                     if (cacheDir == null || cacheDir.isEmpty()) {
                         String userHome = System.getProperty("user.home");
-                        return Paths.get(userHome, ".pytorch/cache");
+                        return Paths.get(userHome, ".djl.ai").resolve("pytorch");
                     }
                 }
-                return Paths.get(cacheDir, "pytorch");
             }
         }
-        return Paths.get(cacheDir, ".pytorch/cache");
+        return Paths.get(cacheDir, "pytorch");
     }
 }

@@ -16,7 +16,7 @@ import ai.djl.Application;
 import ai.djl.Device;
 import ai.djl.MalformedModelException;
 import ai.djl.Model;
-import ai.djl.basicdataset.StanfordMovieReview;
+import ai.djl.basicdataset.nlp.StanfordMovieReview;
 import ai.djl.basicdataset.utils.FixedBucketSampler;
 import ai.djl.basicdataset.utils.TextData;
 import ai.djl.examples.training.util.Arguments;
@@ -49,7 +49,8 @@ import ai.djl.training.Trainer;
 import ai.djl.training.TrainingResult;
 import ai.djl.training.dataset.Batch;
 import ai.djl.training.dataset.Dataset;
-import ai.djl.training.listener.CheckpointsTrainingListener;
+import ai.djl.training.evaluator.Accuracy;
+import ai.djl.training.listener.SaveModelTrainingListener;
 import ai.djl.training.listener.TrainingListener;
 import ai.djl.training.loss.SoftmaxCrossEntropyLoss;
 import ai.djl.training.util.ProgressBar;
@@ -65,7 +66,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import org.apache.commons.cli.ParseException;
 
 public final class TrainSentimentAnalysis {
     private static final List<TextProcessor> TEXT_PROCESSORS =
@@ -78,15 +78,19 @@ public final class TrainSentimentAnalysis {
     private TrainSentimentAnalysis() {}
 
     public static void main(String[] args)
-            throws IOException, ParseException, ModelNotFoundException, MalformedModelException,
+            throws IOException, ModelNotFoundException, MalformedModelException,
                     TranslateException {
         TrainSentimentAnalysis.runExample(args);
     }
 
     public static TrainingResult runExample(String[] args)
-            throws IOException, ParseException, ModelNotFoundException, MalformedModelException,
+            throws IOException, ModelNotFoundException, MalformedModelException,
                     TranslateException {
         Arguments arguments = Arguments.parseArgs(args);
+        if (arguments == null) {
+            return null;
+        }
+
         ExecutorService executorService = Executors.newFixedThreadPool(8);
         Criteria<String, NDList> criteria =
                 Criteria.builder()
@@ -104,9 +108,9 @@ public final class TrainSentimentAnalysis {
                     modelZooTextEmbedding
                             .preprocessTextToEmbed(Collections.singletonList("<unk>"))[0];
             StanfordMovieReview trainingSet =
-                    getDataset(embedding, Dataset.Usage.TRAIN, executorService, arguments);
+                    getDataset(Dataset.Usage.TRAIN, executorService, arguments);
             StanfordMovieReview validateSet =
-                    getDataset(embedding, Dataset.Usage.TEST, executorService, arguments);
+                    getDataset(Dataset.Usage.TEST, executorService, arguments);
             model.setBlock(getModel());
 
             // setup training configuration
@@ -143,10 +147,9 @@ public final class TrainSentimentAnalysis {
         return new SequentialBlock()
                 .add(
                         LSTM.builder()
-                                .setNumStackedLayers(2)
+                                .setNumLayers(2)
                                 .setStateSize(100)
-                                .setSequenceLength(false)
-                                .optBidrectional(true)
+                                .optBidirectional(true)
                                 .build())
                 .add(
                         x -> {
@@ -163,26 +166,26 @@ public final class TrainSentimentAnalysis {
     public static DefaultTrainingConfig setupTrainingConfig(
             Arguments arguments, ModelZooTextEmbedding embedding) {
         String outputDir = arguments.getOutputDir();
-        CheckpointsTrainingListener listener = new CheckpointsTrainingListener(outputDir);
+        SaveModelTrainingListener listener = new SaveModelTrainingListener(outputDir);
         listener.setSaveModelCallback(
                 trainer -> {
                     TrainingResult result = trainer.getTrainingResult();
                     Model model = trainer.getModel();
+                    float accuracy = result.getValidateEvaluation("Accuracy");
+                    model.setProperty("Accuracy", String.format("%.5f", accuracy));
                     model.setProperty("Loss", String.format("%.5f", result.getValidateLoss()));
                 });
 
         return new DefaultTrainingConfig(new SoftmaxCrossEntropyLoss())
                 .optDataManager(new EmbeddingDataManager(embedding))
+                .addEvaluator(new Accuracy())
                 .optDevices(Device.getDevices(arguments.getMaxGpus()))
                 .addTrainingListeners(TrainingListener.Defaults.logging(outputDir))
                 .addTrainingListeners(listener);
     }
 
     public static StanfordMovieReview getDataset(
-            Model embeddingModel,
-            Dataset.Usage usage,
-            ExecutorService executorService,
-            Arguments arguments)
+            Dataset.Usage usage, ExecutorService executorService, Arguments arguments)
             throws IOException, TranslateException {
         StanfordMovieReview stanfordMovieReview =
                 StanfordMovieReview.builder()
@@ -196,9 +199,7 @@ public final class TrainSentimentAnalysis {
                                                 (m) -> m.ones(new Shape(1)).mul(paddingTokenValue))
                                         .build())
                         .setSourceConfiguration(
-                                new TextData.Configuration()
-                                        .setTextEmbedding(new ModelZooTextEmbedding(embeddingModel))
-                                        .setTextProcessors(TEXT_PROCESSORS))
+                                new TextData.Configuration().setTextProcessors(TEXT_PROCESSORS))
                         .optUsage(usage)
                         .optExecutor(executorService, 8)
                         .optLimit(arguments.getLimit())

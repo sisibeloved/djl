@@ -1,7 +1,7 @@
-# How to load model
+# Model Loading
 
 A model is a collection of artifacts that is created by the training process.
-In Deep Learning, running inference on a Model usually involves pre-processing and post-processing.
+In deep learning, running inference on a Model usually involves pre-processing and post-processing.
 DJL provides a [ZooModel](https://javadoc.io/doc/ai.djl/api/latest/ai/djl/repository/zoo/ZooModel.html) 
 class, which makes it easy to combine data processing with the model.
 
@@ -20,7 +20,17 @@ See our reference project: [DJL Spring Boot Starter](https://github.com/awslabs/
 
 You can use the [Criteria](https://javadoc.io/doc/ai.djl/api/latest/ai/djl/repository/zoo/Criteria.html) class 
 to narrow down your search condition and locate the model you want to load.
-The criteria accepts the following information:
+[Criteria](https://javadoc.io/doc/ai.djl/api/latest/ai/djl/repository/zoo/Criteria.html) class follows
+DJL Builder convention. The methods start with `set` are required fields, and `opt` for optional fields.
+You must call `setType()` method when creating a `Criteria` object:
+
+```
+Criteria<Image, Classifications> criteria = Criteria.builder()
+        .setTypes(Image.class, Classifications.class)
+        .build();
+```
+
+The criteria accept the following optional information:
 
 - Engine: defines on which engine you want your model to be loaded
 - Device: defines on which device (GPU/CPU) you want your model to be loaded
@@ -62,7 +72,7 @@ Criteria<Image, Classifications> criteria = Criteria.builder()
         .setTypes(Image.class, Classifications.class) // defines input and output data type
         .optTranslator(ImageClassificationTranslator.builder().setSynsetArtifactName("synset.txt").build())
         .optModelUrls("file:///var/models/my_resnet50") // search models in specified path
-        .optArtifactId("ai.djl.localmodelzoo:my_resnet50") // defines which model to load
+        .optModelName("resnet50") // specify model file prefix
         .build();
 
 ZooModel<Image, Classifications> model = ModelZoo.loadModel(criteria);
@@ -89,27 +99,32 @@ different from the directory or archive file:
 For example:
 
 ```
-files:///var/models/resnet.zip?artifact_id=resenet-18&model_name=resnet-18v1
+file:///var/models/resnet.zip?artifact_id=resenet-18&model_name=resnet-18v1
 ```
 
 If your the directory or archive file has nested folder, are include the folder name in url to let DJL know where
 to find model files:
 
 ```
-files://var/models/resnet.zip?artifact_id=resenet-18&model_name=saved_model/resnet-18
+file:///var/models/resnet.zip?artifact_id=resenet-18&model_name=saved_model/resnet-18
 ```
 
 ### Load model from a URL
 
-DJL supports loading a model from a HTTP(s) URL. Since a model consists multiple files, the URL must be
+DJL supports loading a model from a URL. Since a model consists multiple files, some of URL must be
 an [archive file](#current-supported-archive-formats).
+
+Current supported URL scheme:
+
+- file:// load a model from local directory or archive file
+- http(s):// load a model from an archive file from web server  
+- jar:// load a model from an archive file in the class path
 
 ```java
 Criteria<Image, Classifications> criteria = Criteria.builder()
         .setTypes(Image.class, Classifications.class) // defines input and output data type
         .optTranslator(ImageClassificationTranslator.builder().setSynsetArtifactName("synset.txt").build())
-        .optModelUrls("https://djl-ai.s3.amazonaws.com/resources/benchmark/squeezenet_v1.1.tar.gz") // search models in specified path
-        .optArtifactId("ai.djl.localmodelzoo:squeezenet_v1.1") // defines which model to load
+        .optModelUrls("https://resources.djl.ai/benchmark/squeezenet_v1.1.tar.gz") // search models in specified path
         .build();
 
 ZooModel<Image, Classifications> model = ModelZoo.loadModel(criteria);
@@ -118,10 +133,10 @@ ZooModel<Image, Classifications> model = ModelZoo.loadModel(criteria);
 You can [customize the artifactId and modelName](#customize-artifactid-and-modelname) the same way as loading model from the local file system.
 
 ### Load model from AWS S3 bucket
-DJL supports loading a model from an S3 bucket using `s3://` URL and the AWS plugin. See [here](../3rdparty/aws-ai/README.md) for details.
+DJL supports loading a model from an S3 bucket using `s3://` URL and the AWS plugin. See [here](../extensions/aws-ai/README.md) for details.
 
 ### Load model from Hadoop HDFS
-DJL supports loading a model from a Hadoop HDFS file system using `hdfs://` URL and the Hadoop plugin. See [here](../3rdparty/hadoop/README.md) for details.
+DJL supports loading a model from a Hadoop HDFS file system using `hdfs://` URL and the Hadoop plugin. See [here](../extensions/hadoop/README.md) for details.
 
 ### Implement your own Repository
 You may want to create additional model zoos using other protocols such as:
@@ -142,7 +157,7 @@ DJL is highly extensible and our API allows you to create your own URL protocol 
 - DJL use ServiceLoader to automatically register your `RepositoryFactory`. You need add a file `META-INF/services/ai.djl.repository.RepositoryFactory`
     See [java ServiceLoader](https://docs.oracle.com/javase/9/docs/api/java/util/ServiceLoader.html) for more detail.
 
-You can refer to [AWS S3 Repostory](../3rdparty/aws-ai/README.md) for an example.
+You can refer to [AWS S3 Repostory](../extensions/aws-ai/README.md) for an example.
 
 ## Configure model zoo search path
 
@@ -166,7 +181,7 @@ Here is a few tips you can use to help you debug model loading issue:
 See [here](development/configure_logging.md#configure-logging-level) for how to enable debug log
 
 #### List models programmatically in your code
-You can use [ModelZoo.listModels()](https://javadoc.io/static/ai.djl/api/0.6.0/ai/djl/repository/zoo/ModelZoo.html#listModels--) API to query available models.
+You can use [ModelZoo.listModels()](https://javadoc.io/static/ai.djl/api/0.9.0/ai/djl/repository/zoo/ModelZoo.html#listModels--) API to query available models.
 
 #### List available models using DJL command line
 

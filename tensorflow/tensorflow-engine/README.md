@@ -2,7 +2,7 @@
 
 ## Overview
 
-This module contains the TensorFlow implementation of the Deep Java Library (DJL) EngineProvider.
+This module contains the Deep Java Library (DJL) EngineProvider for TensorFlow.
 
 We don't recommend that developers use classes in this module directly. Use of these classes will
 couple your code with TensorFlow and make switching between frameworks difficult.
@@ -31,7 +31,7 @@ You can pull the TensorFlow engine from the central Maven repository by includin
 <dependency>
     <groupId>ai.djl.tensorflow</groupId>
     <artifactId>tensorflow-engine</artifactId>
-    <version>0.6.0</version>
+    <version>0.9.0</version>
     <scope>runtime</scope>
 </dependency>
 ```
@@ -47,7 +47,7 @@ It will automatically determine the appropriate jars for your system based on th
 <dependency>
     <groupId>ai.djl.tensorflow</groupId>
     <artifactId>tensorflow-native-auto</artifactId>
-    <version>2.2.0</version>
+    <version>2.3.1</version>
     <scope>runtime</scope>
 </dependency>
 ```

@@ -17,6 +17,7 @@ import ai.djl.modality.cv.output.DetectedObjects;
 import ai.djl.modality.cv.output.Joints;
 import ai.djl.modality.cv.output.Mask;
 import ai.djl.modality.cv.output.Rectangle;
+import ai.djl.modality.cv.util.NDImageUtils;
 import ai.djl.ndarray.NDArray;
 import ai.djl.ndarray.NDManager;
 import ai.djl.ndarray.types.DataType;
@@ -36,6 +37,7 @@ import java.net.URL;
 import java.nio.ByteBuffer;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.stream.IntStream;
 import javax.imageio.ImageIO;
 
 /** {@code BufferedImageFactory} is the default implementation of {@link ImageFactory}. */
@@ -85,6 +87,58 @@ public class BufferedImageFactory extends ImageFactory {
             throw new IllegalArgumentException("only BufferedImage allowed");
         }
         return new BufferedImageWrapper((BufferedImage) image);
+    }
+
+    /** {@inheritDoc} */
+    @Override
+    public Image fromNDArray(NDArray array) {
+        Shape shape = array.getShape();
+        if (shape.dimension() == 4) {
+            throw new UnsupportedOperationException("Batch is not supported");
+        } else if (shape.get(0) == 1 || shape.get(2) == 1) {
+            throw new UnsupportedOperationException("Grayscale image is not supported");
+        } else if (array.getDataType() != DataType.UINT8 && array.getDataType() != DataType.INT8) {
+            throw new IllegalArgumentException("Datatype should be INT8 or UINT8");
+        }
+        if (NDImageUtils.isCHW(shape)) {
+            int height = (int) shape.get(1);
+            int width = (int) shape.get(2);
+            int imageArea = width * height;
+            BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
+            int[] raw = array.toUint8Array();
+            IntStream.range(0, imageArea)
+                    .parallel()
+                    .forEach(
+                            ele -> {
+                                int x = ele % width;
+                                int y = ele / width;
+                                int red = raw[ele] & 0xFF;
+                                int green = raw[ele + imageArea] & 0xFF;
+                                int blue = raw[ele + imageArea * 2] & 0xFF;
+                                int rgb = (red << 16) | (green << 8) | blue;
+                                image.setRGB(x, y, rgb);
+                            });
+            return new BufferedImageWrapper(image);
+        } else {
+            int height = (int) shape.get(0);
+            int width = (int) shape.get(1);
+            int imageArea = width * height;
+            BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
+            int[] raw = array.toUint8Array();
+            IntStream.range(0, imageArea)
+                    .parallel()
+                    .forEach(
+                            ele -> {
+                                int x = ele % width;
+                                int y = ele / width;
+                                int red = raw[ele * 3] & 0xFF;
+                                int green = raw[ele * 3 + 1] & 0xFF;
+                                int blue = raw[ele * 3 + 2] & 0xFF;
+                                int rgb = (red << 16) | (green << 8) | blue;
+                                image.setRGB(x, y, rgb);
+                            });
+            return new BufferedImageWrapper(image);
+        }
     }
 
     protected void save(BufferedImage image, OutputStream os, String type) throws IOException {

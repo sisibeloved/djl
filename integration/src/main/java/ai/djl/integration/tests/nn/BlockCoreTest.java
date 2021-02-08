@@ -30,7 +30,9 @@ import ai.djl.nn.ParallelBlock;
 import ai.djl.nn.Parameter;
 import ai.djl.nn.SequentialBlock;
 import ai.djl.nn.convolutional.Conv1d;
+import ai.djl.nn.convolutional.Conv1dTranspose;
 import ai.djl.nn.convolutional.Conv2d;
+import ai.djl.nn.convolutional.Conv2dTranspose;
 import ai.djl.nn.convolutional.Conv3d;
 import ai.djl.nn.core.Linear;
 import ai.djl.nn.norm.BatchNorm;
@@ -292,6 +294,40 @@ public class BlockCoreTest {
     }
 
     @Test
+    public void testConv1dTranspose() throws IOException, MalformedModelException {
+        TrainingConfig config =
+                new DefaultTrainingConfig(Loss.l2Loss()).optInitializer(Initializer.ONES);
+
+        Block block =
+                Conv1dTranspose.builder()
+                        .setKernelShape(new Shape(2))
+                        .setFilters(1)
+                        .optBias(false)
+                        .build();
+
+        try (Model model = Model.newInstance("model")) {
+            model.setBlock(block);
+
+            try (Trainer trainer = model.newTrainer(config)) {
+                Shape inputShape = new Shape(1, 1, 4);
+                trainer.initialize(inputShape);
+
+                NDManager manager = trainer.getManager();
+                NDArray data = manager.create(new float[] {19, 84, 20, 10}, inputShape);
+                NDArray expected =
+                        manager.create(new float[] {19, 103, 104, 30, 10}, new Shape(1, 1, 5));
+                NDArray out = trainer.forward(new NDList(data)).singletonOrThrow();
+                Assert.assertEquals(out, expected);
+
+                Shape[] outputShape = block.getOutputShapes(manager, new Shape[] {inputShape});
+                Assert.assertEquals(out.getShape(), outputShape[0]);
+
+                testEncode(manager, block);
+            }
+        }
+    }
+
+    @Test
     public void testConv2d() throws IOException, MalformedModelException {
         TrainingConfig config =
                 new DefaultTrainingConfig(Loss.l2Loss()).optInitializer(Initializer.ONES);
@@ -313,6 +349,43 @@ public class BlockCoreTest {
                         manager.create(
                                 new float[] {22, 24, 25, 21, 26, 23, 39, 31, 19},
                                 new Shape(1, 1, 3, 3));
+
+                NDArray result = trainer.forward(new NDList(data)).singletonOrThrow();
+                Assertions.assertAlmostEquals(result, expected);
+
+                testEncode(manager, block);
+            }
+        }
+    }
+
+    @Test
+    public void testConv2dTranspose() throws IOException, MalformedModelException {
+        TrainingConfig config =
+                new DefaultTrainingConfig(Loss.l2Loss()).optInitializer(Initializer.ONES);
+
+        Block block =
+                Conv2dTranspose.builder().setKernelShape(new Shape(2, 2)).setFilters(1).build();
+        try (Model model = Model.newInstance("model")) {
+            model.setBlock(block);
+
+            try (Trainer trainer = model.newTrainer(config)) {
+                Shape inputShape = new Shape(1, 1, 4, 4);
+                trainer.initialize(inputShape);
+
+                NDManager manager = trainer.getManager();
+                NDArray data =
+                        manager.create(
+                                new float[] {
+                                    19, 84, 20, 10, 4, 24, 22, 10, 3, 3, 8, 12, 36, 32, 6, 2
+                                },
+                                inputShape);
+                NDArray expected =
+                        manager.create(
+                                new float[] {
+                                    19, 103, 104, 30, 10, 23, 131, 150, 62, 20, 7, 34, 57, 52, 22,
+                                    39, 74, 49, 28, 14, 36, 68, 38, 8, 2
+                                },
+                                new Shape(1, 1, 5, 5));
 
                 NDArray result = trainer.forward(new NDList(data)).singletonOrThrow();
                 Assertions.assertAlmostEquals(result, expected);
@@ -360,6 +433,7 @@ public class BlockCoreTest {
         }
     }
 
+    @SuppressWarnings("try")
     @Test
     public void testRNNTanh() throws IOException, MalformedModelException {
         Loss loss = new SoftmaxCrossEntropyLoss("SmCeLoss", 1, -1, false, true);
@@ -370,34 +444,43 @@ public class BlockCoreTest {
         Block block =
                 RNN.builder()
                         .setStateSize(4)
-                        .setNumStackedLayers(1)
+                        .setNumLayers(1)
                         .setActivation(RNN.Activation.TANH)
-                        .optStateOutput(true)
+                        .optBatchFirst(true)
+                        .optReturnState(true)
                         .build();
         try (Model model = Model.newInstance("model", config.getDevices()[0])) {
             model.setBlock(block);
 
             try (Trainer trainer = model.newTrainer(config)) {
-                Shape inputShape = new Shape(1, 2, 4);
-                Engine.getInstance().setRandomSeed(1234);
-                trainer.initialize(inputShape);
-                NDManager manager = trainer.getManager();
-                NDArray data =
-                        manager.create(new float[] {1, 2, 3, 4, 5, 6, 7, 8}).reshape(inputShape);
-                NDArray labels =
-                        manager.create(new float[] {1, 2, 3, 4, 5, 6, 7, 8}).reshape(inputShape);
-                NDList result = trainer.forward(new NDList(data));
-                NDArray expected =
-                        manager.create(new float[] {1, 1, 1, 1, 1, 1, 1, 1}, new Shape(1, 2, 4));
-                Assertions.assertAlmostEquals(result.head(), expected);
-                Assertions.assertAlmostEquals(result.size(), 2);
-                NDArray lossValue = loss.evaluate(new NDList(labels), new NDList(result.head()));
-                Assertions.assertAlmostEquals(lossValue.getFloat(), -18);
-                testEncode(manager, block);
+                // the unused GradientCollector is for BatchNorm to know it is on training mode
+                try (GradientCollector collector = trainer.newGradientCollector()) {
+                    Shape inputShape = new Shape(1, 2, 4);
+                    Engine.getInstance().setRandomSeed(1234);
+                    trainer.initialize(inputShape);
+                    NDManager manager = trainer.getManager();
+                    NDArray data =
+                            manager.create(new float[] {1, 2, 3, 4, 5, 6, 7, 8})
+                                    .reshape(inputShape);
+                    NDArray labels =
+                            manager.create(new float[] {1, 2, 3, 4, 5, 6, 7, 8})
+                                    .reshape(inputShape);
+                    NDList result = trainer.forward(new NDList(data));
+                    NDArray expected =
+                            manager.create(
+                                    new float[] {1, 1, 1, 1, 1, 1, 1, 1}, new Shape(1, 2, 4));
+                    Assertions.assertAlmostEquals(result.head(), expected);
+                    Assertions.assertAlmostEquals(result.size(), 2);
+                    NDArray lossValue =
+                            loss.evaluate(new NDList(labels), new NDList(result.head()));
+                    Assertions.assertAlmostEquals(lossValue.getFloat(), -18);
+                    testEncode(manager, block);
+                }
             }
         }
     }
 
+    @SuppressWarnings("try")
     @Test
     public void testRNNRelu() throws IOException, MalformedModelException {
         Loss loss = new SoftmaxCrossEntropyLoss("SmCeLoss", 1, -1, false, true);
@@ -408,35 +491,44 @@ public class BlockCoreTest {
         Block block =
                 RNN.builder()
                         .setStateSize(4)
-                        .setNumStackedLayers(1)
+                        .setNumLayers(1)
                         .setActivation(RNN.Activation.RELU)
-                        .optStateOutput(true)
+                        .optBatchFirst(true)
+                        .optReturnState(true)
                         .build();
         try (Model model = Model.newInstance("model", config.getDevices()[0])) {
             model.setBlock(block);
 
             try (Trainer trainer = model.newTrainer(config)) {
-                Shape inputShape = new Shape(1, 2, 4);
-                Engine.getInstance().setRandomSeed(1234);
-                trainer.initialize(inputShape);
-                NDManager manager = trainer.getManager();
-                NDArray data =
-                        manager.create(new float[] {1, 2, 3, 4, 5, 6, 7, 8}).reshape(inputShape);
-                NDArray labels =
-                        manager.create(new float[] {1, 2, 3, 4, 5, 6, 7, 8}).reshape(inputShape);
-                NDList result = trainer.forward(new NDList(data));
-                NDArray expected =
-                        manager.create(
-                                new float[] {10, 10, 10, 10, 66, 66, 66, 66}, new Shape(1, 2, 4));
-                Assertions.assertAlmostEquals(result.head(), expected);
-                Assertions.assertAlmostEquals(result.size(), 2);
-                NDArray lossValue = loss.evaluate(new NDList(labels), new NDList(result.head()));
-                Assertions.assertAlmostEquals(lossValue.getFloat(), -908);
-                testEncode(manager, block);
+                // the unused GradientCollector is for BatchNorm to know it is on training mode
+                try (GradientCollector collector = trainer.newGradientCollector()) {
+                    Shape inputShape = new Shape(1, 2, 4);
+                    Engine.getInstance().setRandomSeed(1234);
+                    trainer.initialize(inputShape);
+                    NDManager manager = trainer.getManager();
+                    NDArray data =
+                            manager.create(new float[] {1, 2, 3, 4, 5, 6, 7, 8})
+                                    .reshape(inputShape);
+                    NDArray labels =
+                            manager.create(new float[] {1, 2, 3, 4, 5, 6, 7, 8})
+                                    .reshape(inputShape);
+                    NDList result = trainer.forward(new NDList(data));
+                    NDArray expected =
+                            manager.create(
+                                    new float[] {10, 10, 10, 10, 66, 66, 66, 66},
+                                    new Shape(1, 2, 4));
+                    Assertions.assertAlmostEquals(result.head(), expected);
+                    Assertions.assertAlmostEquals(result.size(), 2);
+                    NDArray lossValue =
+                            loss.evaluate(new NDList(labels), new NDList(result.head()));
+                    Assertions.assertAlmostEquals(lossValue.getFloat(), -908);
+                    testEncode(manager, block);
+                }
             }
         }
     }
 
+    @SuppressWarnings("try")
     @Test
     public void testLstm() throws IOException, MalformedModelException {
         Loss loss = new SoftmaxCrossEntropyLoss("SmCeLoss", 1, -1, false, true);
@@ -445,36 +537,48 @@ public class BlockCoreTest {
                         .optInitializer(Initializer.ONES)
                         .optDevices(TestUtils.getDevices());
         Block block =
-                LSTM.builder().setStateSize(4).setNumStackedLayers(1).optStateOutput(true).build();
+                LSTM.builder()
+                        .setStateSize(4)
+                        .setNumLayers(1)
+                        .optBatchFirst(true)
+                        .optReturnState(true)
+                        .build();
         try (Model model = Model.newInstance("model", config.getDevices()[0])) {
             model.setBlock(block);
 
             try (Trainer trainer = model.newTrainer(config)) {
-                Shape inputShape = new Shape(1, 2, 4);
-                Engine.getInstance().setRandomSeed(1234);
-                trainer.initialize(inputShape);
-                NDManager manager = trainer.getManager();
-                NDArray data =
-                        manager.create(new float[] {1, 2, 3, 4, 5, 6, 7, 8}).reshape(inputShape);
-                NDArray labels =
-                        manager.create(new float[] {1, 2, 3, 4, 5, 6, 7, 8}).reshape(inputShape);
-                NDList result = trainer.forward(new NDList(data));
-                NDArray expected =
-                        manager.create(
-                                new float[] {
-                                    00.7615f, 0.7615f, 0.7615f, 0.7615f, 0.964f, 0.964f, 0.964f,
-                                    0.964f
-                                },
-                                new Shape(1, 2, 4));
-                Assertions.assertAlmostEquals(result.head(), expected);
-                Assertions.assertAlmostEquals(result.size(), 3);
-                NDArray lossValue = loss.evaluate(new NDList(labels), new NDList(result.head()));
-                Assertions.assertAlmostEquals(lossValue.getFloat(), -16.340019);
-                testEncode(manager, block);
+                // the unused GradientCollector is for BatchNorm to know it is on training mode
+                try (GradientCollector collector = trainer.newGradientCollector()) {
+                    Shape inputShape = new Shape(1, 2, 4);
+                    Engine.getInstance().setRandomSeed(1234);
+                    trainer.initialize(inputShape);
+                    NDManager manager = trainer.getManager();
+                    NDArray data =
+                            manager.create(new float[] {1, 2, 3, 4, 5, 6, 7, 8})
+                                    .reshape(inputShape);
+                    NDArray labels =
+                            manager.create(new float[] {1, 2, 3, 4, 5, 6, 7, 8})
+                                    .reshape(inputShape);
+                    NDList result = trainer.forward(new NDList(data));
+                    NDArray expected =
+                            manager.create(
+                                    new float[] {
+                                        00.7615f, 0.7615f, 0.7615f, 0.7615f, 0.964f, 0.964f, 0.964f,
+                                        0.964f
+                                    },
+                                    new Shape(1, 2, 4));
+                    Assertions.assertAlmostEquals(result.head(), expected);
+                    Assertions.assertAlmostEquals(result.size(), 3);
+                    NDArray lossValue =
+                            loss.evaluate(new NDList(labels), new NDList(result.head()));
+                    Assertions.assertAlmostEquals(lossValue.getFloat(), -16.340019);
+                    testEncode(manager, block);
+                }
             }
         }
     }
 
+    @SuppressWarnings("try")
     @Test
     public void testGRU() throws IOException, MalformedModelException {
 
@@ -483,38 +587,50 @@ public class BlockCoreTest {
                 new DefaultTrainingConfig(loss)
                         .optInitializer(Initializer.ONES)
                         .optDevices(TestUtils.getDevices());
-        GRU block = GRU.builder().setStateSize(4).setNumStackedLayers(1).build();
+        GRU block =
+                GRU.builder()
+                        .setStateSize(4)
+                        .setNumLayers(1)
+                        .optBatchFirst(true)
+                        .optReturnState(false)
+                        .build();
         try (Model model = Model.newInstance("model", config.getDevices()[0])) {
             model.setBlock(block);
 
             try (Trainer trainer = model.newTrainer(config)) {
-                Shape inputShape = new Shape(1, 2, 4);
-                Engine.getInstance().setRandomSeed(1234);
-                trainer.initialize(inputShape);
-                NDManager manager = trainer.getManager();
-                NDArray data =
-                        manager.create(new float[] {1, 2, 3, 4, 5, 6, 7, 8}).reshape(inputShape);
-                NDArray labels =
-                        manager.create(new float[] {1, 2, 3, 4, 5, 6, 7, 8}).reshape(inputShape);
-                NDList result = trainer.forward(new NDList(data));
-                NDArray expected =
-                        manager.create(
-                                new float[] {
-                                    4.54187393e-05f,
-                                    4.54187393e-05f,
-                                    4.54187393e-05f,
-                                    4.54187393e-05f,
-                                    4.54187393e-05f,
-                                    4.54187393e-05f,
-                                    4.54187393e-05f,
-                                    4.54187393e-05f
-                                },
-                                new Shape(1, 2, 4));
-                Assertions.assertAlmostEquals(result.head(), expected);
-                Assertions.assertAlmostEquals(result.size(), 1);
-                NDArray lossValue = loss.evaluate(new NDList(labels), new NDList(result.head()));
-                Assertions.assertAlmostEquals(lossValue.getFloat(), -8.17537307E-4);
-                testEncode(manager, block);
+                // the unused GradientCollector is for BatchNorm to know it is on training mode
+                try (GradientCollector collector = trainer.newGradientCollector()) {
+                    Shape inputShape = new Shape(1, 2, 4);
+                    Engine.getInstance().setRandomSeed(1234);
+                    trainer.initialize(inputShape);
+                    NDManager manager = trainer.getManager();
+                    NDArray data =
+                            manager.create(new float[] {1, 2, 3, 4, 5, 6, 7, 8})
+                                    .reshape(inputShape);
+                    NDArray labels =
+                            manager.create(new float[] {1, 2, 3, 4, 5, 6, 7, 8})
+                                    .reshape(inputShape);
+                    NDList result = trainer.forward(new NDList(data));
+                    NDArray expected =
+                            manager.create(
+                                    new float[] {
+                                        4.54187393e-05f,
+                                        4.54187393e-05f,
+                                        4.54187393e-05f,
+                                        4.54187393e-05f,
+                                        4.54187393e-05f,
+                                        4.54187393e-05f,
+                                        4.54187393e-05f,
+                                        4.54187393e-05f
+                                    },
+                                    new Shape(1, 2, 4));
+                    Assertions.assertAlmostEquals(result.head(), expected);
+                    Assertions.assertAlmostEquals(result.size(), 1);
+                    NDArray lossValue =
+                            loss.evaluate(new NDList(labels), new NDList(result.head()));
+                    Assertions.assertAlmostEquals(lossValue.getFloat(), -8.17537307E-4);
+                    testEncode(manager, block);
+                }
             }
         }
     }

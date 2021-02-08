@@ -15,10 +15,12 @@ package ai.djl.pytorch.engine;
 import ai.djl.Device;
 import ai.djl.Model;
 import ai.djl.engine.Engine;
+import ai.djl.engine.EngineException;
 import ai.djl.ndarray.NDManager;
 import ai.djl.pytorch.jni.JniUtils;
 import ai.djl.pytorch.jni.LibUtils;
 import ai.djl.training.GradientCollector;
+import ai.djl.util.RandomUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -47,11 +49,12 @@ public final class PtEngine extends Engine {
             if (Integer.getInteger("ai.djl.pytorch.num_threads") != null) {
                 JniUtils.setNumThreads(Integer.getInteger("ai.djl.pytorch.num_threads"));
             }
+            logger.info("Number of inter-op threads is " + JniUtils.getNumInteropThreads());
+            logger.info("Number of intra-op threads is " + JniUtils.getNumThreads());
             return new PtEngine();
         } catch (Throwable t) {
-            logger.warn("Failed to load PyTorch native library", t);
+            throw new EngineException("Failed to load PyTorch native library", t);
         }
-        return null;
     }
 
     /** {@inheritDoc} */
@@ -62,8 +65,14 @@ public final class PtEngine extends Engine {
 
     /** {@inheritDoc} */
     @Override
+    public int getRank() {
+        return 2;
+    }
+
+    /** {@inheritDoc} */
+    @Override
     public String getVersion() {
-        return "1.5.0";
+        return "1.7.1";
     }
 
     /** {@inheritDoc} */
@@ -100,5 +109,18 @@ public final class PtEngine extends Engine {
     @Override
     public void setRandomSeed(int seed) {
         JniUtils.setSeed(seed);
+        RandomUtils.RANDOM.setSeed(seed);
+    }
+
+    /** {@inheritDoc} */
+    @Override
+    public String toString() {
+        StringBuilder sb = new StringBuilder(200);
+        sb.append(getEngineName()).append(':').append(getVersion()).append(", capabilities: [\n");
+        for (String feature : JniUtils.getFeatures()) {
+            sb.append("\t").append(feature).append(",\n"); // NOPMD
+        }
+        sb.append("]\nPyTorch Library: ").append(LibUtils.getLibName());
+        return sb.toString();
     }
 }

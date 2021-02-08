@@ -32,6 +32,7 @@ import ai.djl.translate.TranslateException;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.function.Consumer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -82,12 +83,11 @@ public class Trainer implements AutoCloseable {
     public Trainer(Model model, TrainingConfig trainingConfig) {
         this.model = model;
         manager = model.getNDManager().newSubManager();
+        manager.setName("trainer");
         devices = trainingConfig.getDevices();
         loss = trainingConfig.getLossFunction();
         dataManager = trainingConfig.getDataManager();
-        if (loss == null) {
-            throw new IllegalArgumentException("You must specify a loss for the trainer");
-        }
+        Objects.requireNonNull(loss, "You must specify a loss for the trainer");
         evaluators = new ArrayList<>(trainingConfig.getEvaluators());
         evaluators.add(loss); // track loss as an evaluator by default
 
@@ -114,7 +114,7 @@ public class Trainer implements AutoCloseable {
                 .forEach(
                         pair -> {
                             for (Device device : devices) {
-                                parameterStore.getValue(pair.getValue(), device);
+                                parameterStore.getValue(pair.getValue(), device, true);
                             }
                         });
     }
@@ -297,7 +297,7 @@ public class Trainer implements AutoCloseable {
     protected void finalize() throws Throwable {
         if (manager.isOpen()) {
             if (logger.isDebugEnabled()) {
-                logger.warn("Model was not closed explicitly: {}", getClass().getSimpleName());
+                logger.warn("Trainer for {} was not closed explicitly.", model.getName());
             }
             close();
         }
@@ -327,7 +327,9 @@ public class Trainer implements AutoCloseable {
                 .forEach(
                         param ->
                                 grads.add(
-                                        parameterStore.getValue(param, devices[0]).getGradient()));
+                                        parameterStore
+                                                .getValue(param, devices[0], true)
+                                                .getGradient()));
 
         NDList list = new NDList(grads.stream().map(NDArray::sum).toArray(NDArray[]::new));
         NDArray gradSum = NDArrays.stack(list);

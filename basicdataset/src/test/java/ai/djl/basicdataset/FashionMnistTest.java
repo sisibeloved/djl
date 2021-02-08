@@ -13,6 +13,7 @@
 package ai.djl.basicdataset;
 
 import ai.djl.Model;
+import ai.djl.basicdataset.cv.classification.FashionMnist;
 import ai.djl.ndarray.NDManager;
 import ai.djl.nn.Blocks;
 import ai.djl.training.DefaultTrainingConfig;
@@ -20,7 +21,6 @@ import ai.djl.training.Trainer;
 import ai.djl.training.TrainingConfig;
 import ai.djl.training.dataset.Batch;
 import ai.djl.training.dataset.Dataset;
-import ai.djl.training.initializer.Initializer;
 import ai.djl.training.loss.Loss;
 import ai.djl.translate.TranslateException;
 import java.io.IOException;
@@ -31,9 +31,7 @@ public class FashionMnistTest {
 
     @Test
     public void testFashMnistRemote() throws IOException, TranslateException {
-        TrainingConfig config =
-                new DefaultTrainingConfig(Loss.softmaxCrossEntropyLoss())
-                        .optInitializer(Initializer.ONES);
+        TrainingConfig config = new DefaultTrainingConfig(Loss.softmaxCrossEntropyLoss());
 
         try (Model model = Model.newInstance("model")) {
             model.setBlock(Blocks.identityBlock());
@@ -47,11 +45,10 @@ public class FashionMnistTest {
                             .build();
 
             try (Trainer trainer = model.newTrainer(config)) {
-                for (Batch batch : trainer.iterateDataset(fashionMnist)) {
-                    Assert.assertEquals(batch.getData().size(), 1);
-                    Assert.assertEquals(batch.getLabels().size(), 1);
-                    batch.close();
-                }
+                Batch batch = trainer.iterateDataset(fashionMnist).iterator().next();
+                Assert.assertEquals(batch.getData().size(), 1);
+                Assert.assertEquals(batch.getLabels().size(), 1);
+                batch.close();
             }
         }
     }

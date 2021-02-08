@@ -16,12 +16,10 @@ import ai.djl.Device;
 import ai.djl.engine.Engine;
 import ai.djl.ndarray.BaseNDManager;
 import ai.djl.ndarray.NDArray;
-import ai.djl.ndarray.NDList;
 import ai.djl.ndarray.NDManager;
 import ai.djl.ndarray.index.NDIndex;
 import ai.djl.ndarray.types.DataType;
 import ai.djl.ndarray.types.Shape;
-import ai.djl.util.PairList;
 import java.nio.Buffer;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
@@ -29,19 +27,19 @@ import java.nio.DoubleBuffer;
 import java.nio.FloatBuffer;
 import java.nio.IntBuffer;
 import java.nio.LongBuffer;
-import java.nio.file.Path;
 import org.tensorflow.EagerSession;
 import org.tensorflow.Operand;
 import org.tensorflow.Tensor;
+import org.tensorflow.ndarray.buffer.ByteDataBuffer;
+import org.tensorflow.ndarray.buffer.DataBuffers;
 import org.tensorflow.op.Ops;
 import org.tensorflow.op.core.Constant;
 import org.tensorflow.op.random.RandomStandardNormal;
 import org.tensorflow.op.random.RandomUniform;
-import org.tensorflow.tools.buffer.ByteDataBuffer;
-import org.tensorflow.tools.buffer.DataBuffers;
 import org.tensorflow.types.TBool;
 import org.tensorflow.types.TFloat32;
 import org.tensorflow.types.TInt32;
+import org.tensorflow.types.TString;
 import org.tensorflow.types.TUint8;
 import org.tensorflow.types.family.TType;
 
@@ -97,43 +95,64 @@ public class TfNDManager extends BaseNDManager {
     /** {@inheritDoc} */
     @Override
     public NDArray create(byte[] data) {
-        org.tensorflow.tools.Shape shape = org.tensorflow.tools.Shape.of(data.length);
-        return new TfNDArray(this, TUint8.tensorOf(shape, DataBuffers.of(data)));
+        org.tensorflow.ndarray.Shape shape = org.tensorflow.ndarray.Shape.of(data.length);
+        try (Tensor<TUint8> tensor = TUint8.tensorOf(shape, DataBuffers.of(data))) {
+            return new TfNDArray(this, tensor);
+        }
     }
 
     /** {@inheritDoc} */
     @Override
     public NDArray create(float[] data) {
-        org.tensorflow.tools.Shape shape = org.tensorflow.tools.Shape.of(data.length);
-        return new TfNDArray(this, TFloat32.tensorOf(shape, DataBuffers.of(data)));
+        org.tensorflow.ndarray.Shape shape = org.tensorflow.ndarray.Shape.of(data.length);
+        try (Tensor<TFloat32> tensor = TFloat32.tensorOf(shape, DataBuffers.of(data))) {
+            return new TfNDArray(this, tensor);
+        }
     }
 
     /** {@inheritDoc} */
     @Override
     public NDArray create(int[] data) {
-        org.tensorflow.tools.Shape shape = org.tensorflow.tools.Shape.of(data.length);
-        return new TfNDArray(this, TInt32.tensorOf(shape, DataBuffers.of(data)));
+        org.tensorflow.ndarray.Shape shape = org.tensorflow.ndarray.Shape.of(data.length);
+        try (Tensor<TInt32> tensor = TInt32.tensorOf(shape, DataBuffers.of(data))) {
+            return new TfNDArray(this, tensor);
+        }
     }
 
     /** {@inheritDoc} */
     @Override
     public NDArray create(boolean[] data) {
-        org.tensorflow.tools.Shape shape = org.tensorflow.tools.Shape.of(data.length);
-        return new TfNDArray(this, TBool.tensorOf(shape, DataBuffers.of(data)));
+        org.tensorflow.ndarray.Shape shape = org.tensorflow.ndarray.Shape.of(data.length);
+        try (Tensor<TBool> tensor = TBool.tensorOf(shape, DataBuffers.of(data))) {
+            return new TfNDArray(this, tensor);
+        }
     }
 
     /** {@inheritDoc} */
     @Override
     public NDArray create(int data) {
         // create scalar tensor with int
-        return new TfNDArray(this, TInt32.scalarOf(data));
+        try (Tensor<TInt32> tensor = TInt32.scalarOf(data)) {
+            return new TfNDArray(this, tensor);
+        }
     }
 
     /** {@inheritDoc} */
     @Override
     public NDArray create(float data) {
         // create scalar tensor with float
-        return new TfNDArray(this, TFloat32.scalarOf(data));
+        try (Tensor<TFloat32> tensor = TFloat32.scalarOf(data)) {
+            return new TfNDArray(this, tensor);
+        }
+    }
+
+    /** {@inheritDoc} */
+    @Override
+    public NDArray create(String data) {
+        // create scalar tensor with float
+        try (Tensor<TString> tensor = TString.scalarOf(data)) {
+            return new TfNDArray(this, tensor);
+        }
     }
 
     /** {@inheritDoc} */
@@ -195,42 +214,15 @@ public class TfNDManager extends BaseNDManager {
         buf.rewind();
 
         ByteDataBuffer db = DataBuffers.of(buf);
-        Tensor<?> tensor = Tensor.of(TfDataType.toTf(dataType), TfNDArray.toTfShape(shape), db);
-        return new TfNDArray(this, tensor);
+        try (Tensor<?> tensor =
+                Tensor.of(TfDataType.toTf(dataType), TfNDArray.toTfShape(shape), db)) {
+            return new TfNDArray(this, tensor);
+        }
     }
 
     /** {@inheritDoc} */
     @Override
-    public NDArray createCSR(Buffer data, long[] indptr, long[] indices, Shape shape) {
-        throw new UnsupportedOperationException("Not implemented");
-    }
-
-    /** {@inheritDoc} */
-    @Override
-    public NDArray createRowSparse(Buffer data, Shape dataShape, long[] indices, Shape shape) {
-        throw new UnsupportedOperationException("Not implemented");
-    }
-
-    /** {@inheritDoc} */
-    @Override
-    public NDList load(Path path) {
-        throw new UnsupportedOperationException("Not implemented");
-    }
-
-    /** {@inheritDoc} */
-    @Override
-    public void invoke(
-            String operation, NDArray[] src, NDArray[] dest, PairList<String, ?> params) {}
-
-    /** {@inheritDoc} */
-    @Override
-    public NDList invoke(String operation, NDList src, PairList<String, ?> params) {
-        throw new UnsupportedOperationException("Not implemented");
-    }
-
-    /** {@inheritDoc} */
-    @Override
-    public Engine getEngine() {
+    public final Engine getEngine() {
         return Engine.getEngine(TfEngine.ENGINE_NAME);
     }
 
@@ -347,14 +339,23 @@ public class TfNDManager extends BaseNDManager {
             return create(new Shape(0));
         }
         if (endpoint) {
+
             try (Tensor<?> tensor =
-                    tf.linSpace(tf.constant(start), tf.constant(stop), tf.constant(num))
+                    org.tensorflow.op.core.LinSpace.create(
+                                    tf.scope(),
+                                    tf.constant(start),
+                                    tf.constant(stop),
+                                    tf.constant(num))
                             .asTensor()) {
                 return new TfNDArray(this, tensor);
             }
         }
         try (Tensor<?> tensor =
-                tf.linSpace(tf.constant(start), tf.constant(stop), tf.constant(num + 1))
+                org.tensorflow.op.core.LinSpace.create(
+                                tf.scope(),
+                                tf.constant(start),
+                                tf.constant(stop),
+                                tf.constant(num + 1))
                         .asTensor()) {
             return new TfNDArray(this, tensor).get(new NDIndex(":-1"));
         }
@@ -366,11 +367,7 @@ public class TfNDManager extends BaseNDManager {
     public NDArray randomUniform(float low, float high, Shape shape, DataType dataType) {
         Operand shapeOp = tf.constant(shape.getShape());
         org.tensorflow.DataType dType;
-        if (dataType == DataType.UNKNOWN) {
-            dType = TFloat32.DTYPE;
-        } else {
-            dType = TfDataType.toTf(dataType);
-        }
+        dType = TfDataType.toTf(dataType);
         Operand minVal = tf.dtypes.cast(tf.constant(low), dType);
         Operand maxVal = tf.dtypes.cast(tf.constant(high), dType);
         Operand result;
@@ -396,11 +393,7 @@ public class TfNDManager extends BaseNDManager {
     public NDArray randomNormal(float loc, float scale, Shape shape, DataType dataType) {
         Operand shapeOp = tf.dtypes.cast(tf.constant(shape.getShape()), TInt32.DTYPE);
         org.tensorflow.DataType dType;
-        if (dataType == DataType.UNKNOWN) {
-            dType = TFloat32.DTYPE;
-        } else {
-            dType = TfDataType.toTf(dataType);
-        }
+        dType = TfDataType.toTf(dataType);
         Operand mean = tf.dtypes.cast(tf.constant(loc), dType);
         Operand std = tf.dtypes.cast(tf.constant(scale), dType);
         Operand result;
@@ -421,36 +414,6 @@ public class TfNDManager extends BaseNDManager {
 
     /** {@inheritDoc} */
     @Override
-    public NDArray randomMultinomial(int n, NDArray pValues, Shape shape) {
-        return null;
-    }
-
-    /** {@inheritDoc} */
-    @Override
-    public NDArray randomMultinomial(int n, NDArray pValues) {
-        return null;
-    }
-
-    /** {@inheritDoc} */
-    @Override
-    public NDManager getParentManager() {
-        return parent;
-    }
-
-    /** {@inheritDoc} */
-    @Override
-    public Device getDevice() {
-        return device;
-    }
-
-    /** {@inheritDoc} */
-    @Override
-    public TfNDManager newSubManager() {
-        return newSubManager(device);
-    }
-
-    /** {@inheritDoc} */
-    @Override
     public TfNDManager newSubManager(Device device) {
         TfNDManager manager = new TfNDManager(this, device);
         attach(manager.uid, manager);
@@ -458,18 +421,6 @@ public class TfNDManager extends BaseNDManager {
         manager.getEagerSession();
         manager.getTf();
         return manager;
-    }
-
-    /** {@inheritDoc} */
-    @Override
-    public boolean isOpen() {
-        return false;
-    }
-
-    /** {@inheritDoc} */
-    @Override
-    public void detach(String resourceId) {
-        resources.remove(resourceId);
     }
 
     /** {@inheritDoc} */
@@ -484,7 +435,7 @@ public class TfNDManager extends BaseNDManager {
     private static final class SystemManager extends TfNDManager {
 
         SystemManager() {
-            super(null, Device.defaultDevice());
+            super(null, null);
         }
 
         /** {@inheritDoc} */

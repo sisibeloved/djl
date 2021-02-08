@@ -12,10 +12,18 @@
  */
 package ai.djl;
 
+import ai.djl.inference.Predictor;
+import ai.djl.ndarray.NDArray;
+import ai.djl.ndarray.NDList;
 import ai.djl.ndarray.NDManager;
 import ai.djl.ndarray.types.DataType;
 import ai.djl.ndarray.types.Shape;
 import ai.djl.nn.Block;
+import ai.djl.nn.SymbolBlock;
+import ai.djl.training.ParameterStore;
+import ai.djl.training.Trainer;
+import ai.djl.training.TrainingConfig;
+import ai.djl.translate.Translator;
 import ai.djl.util.Pair;
 import ai.djl.util.PairList;
 import ai.djl.util.Utils;
@@ -28,8 +36,10 @@ import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
@@ -80,6 +90,18 @@ public abstract class BaseModel implements Model {
 
     /** {@inheritDoc} */
     @Override
+    public Trainer newTrainer(TrainingConfig trainingConfig) {
+        throw new UnsupportedOperationException("Not supported!");
+    }
+
+    /** {@inheritDoc} */
+    @Override
+    public <I, O> Predictor<I, O> newPredictor(Translator<I, O> translator) {
+        return new Predictor<>(this, translator, false);
+    }
+
+    /** {@inheritDoc} */
+    @Override
     public void setDataType(DataType dataType) {
         this.dataType = dataType;
     }
@@ -88,6 +110,12 @@ public abstract class BaseModel implements Model {
     @Override
     public DataType getDataType() {
         return dataType;
+    }
+
+    /** {@inheritDoc} */
+    @Override
+    public void close() {
+        manager.close();
     }
 
     /** {@inheritDoc} */
@@ -102,11 +130,27 @@ public abstract class BaseModel implements Model {
     /** {@inheritDoc} */
     @Override
     public PairList<String, Shape> describeOutput() {
-        List<String> names = inputData.keys();
-        Shape[] outputShapes =
-                block.getOutputShapes(
-                        manager, inputData.values().toArray(new Shape[inputData.size()]));
-        return new PairList<>(names, Arrays.asList(outputShapes));
+        if (block instanceof SymbolBlock) {
+            return ((SymbolBlock) block).describeOutput();
+        }
+        // create fake input to calculate output shapes
+        NDList input = new NDList();
+        for (Pair<String, Shape> pair : describeInput()) {
+            input.add(manager.ones(pair.getValue()));
+        }
+        List<String> outputNames = new ArrayList<>();
+        NDList output = block.forward(new ParameterStore(manager, true), input, false);
+        Shape[] outputShapes = output.stream().map(NDArray::getShape).toArray(Shape[]::new);
+        for (int i = 0; i < outputShapes.length; i++) {
+            outputNames.add("output" + i);
+        }
+        return new PairList<>(outputNames, Arrays.asList(outputShapes));
+    }
+
+    /** {@inheritDoc} */
+    @Override
+    public String[] getArtifactNames() {
+        throw new UnsupportedOperationException("Not supported!");
     }
 
     /** {@inheritDoc} */
@@ -187,7 +231,8 @@ public abstract class BaseModel implements Model {
                         ? Utils.getCurrentEpoch(modelPath, newModelName) + 1
                         : Integer.parseInt(epochValue);
 
-        Path paramFile = modelPath.resolve(String.format("%s-%04d.params", newModelName, epoch));
+        String fileName = String.format(Locale.ENGLISH, "%s-%04d.params", newModelName, epoch);
+        Path paramFile = modelPath.resolve(fileName);
         try (DataOutputStream dos = new DataOutputStream(Files.newOutputStream(paramFile))) {
             dos.writeBytes("DJL@");
             dos.writeInt(MODEL_VERSION);
@@ -227,14 +272,13 @@ public abstract class BaseModel implements Model {
     @Override
     protected void finalize() throws Throwable {
         if (manager.isOpen()) {
-            logger.warn("Model was not closed explicitly.");
+            logger.warn("Model: {} was not closed explicitly.", modelName);
             manager.close();
         }
         super.finalize();
     }
 
-    protected Path paramPathResolver(String prefix, Map<String, Object> options)
-            throws IOException {
+    protected Path paramPathResolver(String prefix, Map<String, ?> options) throws IOException {
         Object epochOption = null;
         if (options != null) {
             epochOption = options.get("epoch");
@@ -249,10 +293,10 @@ public abstract class BaseModel implements Model {
             epoch = Integer.parseInt(epochOption.toString());
         }
 
-        return modelDir.resolve(String.format("%s-%04d.params", prefix, epoch));
+        return modelDir.resolve(String.format(Locale.ENGLISH, "%s-%04d.params", prefix, epoch));
     }
 
-    protected boolean readParameters(Path paramFile, Map<String, Object> options)
+    protected boolean readParameters(Path paramFile, Map<String, ?> options)
             throws IOException, MalformedModelException {
         logger.debug("Try to load model from {}", paramFile);
         try (DataInputStream dis = new DataInputStream(Files.newInputStream(paramFile))) {

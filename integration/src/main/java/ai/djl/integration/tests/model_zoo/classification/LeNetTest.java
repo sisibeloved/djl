@@ -13,11 +13,13 @@
 
 package ai.djl.integration.tests.model_zoo.classification;
 
+import ai.djl.Device;
 import ai.djl.Model;
 import ai.djl.basicmodelzoo.cv.classification.LeNet;
 import ai.djl.ndarray.NDArray;
 import ai.djl.ndarray.NDList;
 import ai.djl.ndarray.NDManager;
+import ai.djl.ndarray.types.DataType;
 import ai.djl.ndarray.types.Shape;
 import ai.djl.nn.Block;
 import ai.djl.nn.Parameter;
@@ -42,7 +44,7 @@ public class LeNetTest {
     public void testTrainWithDefaultChannels() {
         TrainingConfig config =
                 new DefaultTrainingConfig(Loss.softmaxCrossEntropyLoss())
-                        .optInitializer(Initializer.ONES);
+                        .optDevices(Device.getDevices(2));
         Block leNet = LeNet.builder().build();
         try (Model model = Model.newInstance("lenet")) {
             model.setBlock(leNet);
@@ -56,12 +58,14 @@ public class LeNetTest {
                 NDArray label = manager.ones(new Shape(batchSize, 1));
                 Batch batch =
                         new Batch(
-                                manager,
+                                manager.newSubManager(),
                                 new NDList(input),
                                 new NDList(label),
                                 batchSize,
                                 Batchifier.STACK,
-                                Batchifier.STACK);
+                                Batchifier.STACK,
+                                0,
+                                0);
                 PairList<String, Parameter> parameters = leNet.getParameters();
                 EasyTrain.trainBatch(trainer, batch);
                 trainer.step();
@@ -84,7 +88,7 @@ public class LeNetTest {
     public void testTrainWithCustomChannels() {
         TrainingConfig config =
                 new DefaultTrainingConfig(Loss.softmaxCrossEntropyLoss())
-                        .optInitializer(Initializer.ONES);
+                        .optDevices(Device.getDevices(2));
         Block leNet = LeNet.builder().setNumChannels(new int[] {12, 15, 150, 100}).build();
         try (Model model = Model.newInstance("lenet")) {
             model.setBlock(leNet);
@@ -98,12 +102,14 @@ public class LeNetTest {
                 NDArray label = manager.ones(new Shape(batchSize, 1));
                 Batch batch =
                         new Batch(
-                                manager,
+                                manager.newSubManager(),
                                 new NDList(input),
                                 new NDList(label),
                                 batchSize,
                                 Batchifier.STACK,
-                                Batchifier.STACK);
+                                Batchifier.STACK,
+                                0,
+                                0);
                 PairList<String, Parameter> parameters = leNet.getParameters();
                 EasyTrain.trainBatch(trainer, batch);
                 trainer.step();
@@ -125,21 +131,14 @@ public class LeNetTest {
 
     @Test
     public void testOutputShapes() {
-        TrainingConfig config =
-                new DefaultTrainingConfig(Loss.softmaxCrossEntropyLoss())
-                        .optInitializer(Initializer.ONES);
-        Block leNet = LeNet.builder().build();
-
-        Model model = Model.newInstance("alexnet");
-        model.setBlock(leNet);
-
-        Trainer trainer = model.newTrainer(config);
-
-        NDArray x = trainer.getManager().ones(new Shape(1, 1, 28, 28));
-
-        trainer.initialize(x.getShape());
-
+        NDManager manager = NDManager.newBaseManager();
+        int batchSize = 1;
+        NDArray x = manager.ones(new Shape(batchSize, 1, 28, 28));
         Shape currentShape = x.getShape();
+
+        Block leNet = LeNet.builder().build();
+        leNet.setInitializer(Initializer.ONES);
+        leNet.initialize(manager, DataType.FLOAT32, currentShape);
 
         Map<String, Shape> shapeMap = new ConcurrentHashMap<>();
         for (int i = 0; i < leNet.getChildren().size(); i++) {
@@ -148,37 +147,31 @@ public class LeNetTest {
                     leNet.getChildren()
                             .get(i)
                             .getValue()
-                            .getOutputShapes(trainer.getManager(), new Shape[] {currentShape});
+                            .getOutputShapes(manager, new Shape[] {currentShape});
             currentShape = newShape[0];
             shapeMap.put(leNet.getChildren().get(i).getKey(), currentShape);
         }
 
-        Assert.assertEquals(shapeMap.get("01Conv2d"), new Shape(1, 6, 28, 28));
-        Assert.assertEquals(shapeMap.get("04Conv2d"), new Shape(1, 16, 10, 10));
-        Assert.assertEquals(shapeMap.get("08Linear"), new Shape(1, 120));
-        Assert.assertEquals(shapeMap.get("12Linear"), new Shape(1, 10));
+        Assert.assertEquals(shapeMap.get("01Conv2d"), new Shape(batchSize, 6, 28, 28));
+        Assert.assertEquals(shapeMap.get("04Conv2d"), new Shape(batchSize, 16, 10, 10));
+        Assert.assertEquals(shapeMap.get("08Linear"), new Shape(batchSize, 120));
+        Assert.assertEquals(shapeMap.get("12Linear"), new Shape(batchSize, 10));
+        manager.close();
     }
 
     @Test
     public void testForwardMethod() {
-        TrainingConfig config =
-                new DefaultTrainingConfig(Loss.softmaxCrossEntropyLoss())
-                        .optInitializer(Initializer.ONES);
+        NDManager manager = NDManager.newBaseManager();
         Block leNet = LeNet.builder().build();
-
-        Model model = Model.newInstance("alexnet");
-        model.setBlock(leNet);
-
-        Trainer trainer = model.newTrainer(config);
-
-        NDArray x = trainer.getManager().ones(new Shape(1, 1, 28, 28));
-
-        trainer.initialize(x.getShape());
-
+        int batchSize = 1;
+        NDArray x = manager.ones(new Shape(batchSize, 1, 28, 28));
+        leNet.setInitializer(Initializer.ONES);
+        leNet.initialize(manager, DataType.FLOAT32, x.getShape());
         NDArray xHat =
-                leNet.forward(new ParameterStore(trainer.getManager(), true), new NDList(x), true)
+                leNet.forward(new ParameterStore(manager, true), new NDList(x), true)
                         .singletonOrThrow();
 
-        Assert.assertEquals(xHat.getShape(), new Shape(1, 10));
+        Assert.assertEquals(xHat.getShape(), new Shape(batchSize, 10));
+        manager.close();
     }
 }

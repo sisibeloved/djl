@@ -15,20 +15,23 @@ package ai.djl.mxnet.engine;
 
 import ai.djl.mxnet.jna.JnaUtils;
 import ai.djl.mxnet.jna.MxnetLibrary;
-import ai.djl.mxnet.jna.NativeResource;
 import ai.djl.ndarray.NDArray;
 import ai.djl.ndarray.NDList;
+import ai.djl.ndarray.NDManager;
 import ai.djl.training.ParameterServer;
 import ai.djl.training.optimizer.Optimizer;
+import ai.djl.util.NativeResource;
 import com.sun.jna.Pointer;
 import java.util.Arrays;
 
 /** {@code MxParameterServer} is the MXNet implementation of {@link ParameterServer}. */
-public class MxParameterServer extends NativeResource implements ParameterServer {
+public class MxParameterServer extends NativeResource<Pointer> implements ParameterServer {
 
     @SuppressWarnings("PMD.SingularField")
     // use class field to hold the OptimizerCallback which prevent it from being gc.
     private OptimizerCallback callback;
+
+    private int priority;
 
     /**
      * Constructs a new {@code MxParameterServer}.
@@ -39,6 +42,7 @@ public class MxParameterServer extends NativeResource implements ParameterServer
         super(createdKVStore());
         callback = new OptimizerCallback(optimizer);
         JnaUtils.parameterStoreSetUpdater(getHandle(), null, callback, null);
+        priority = 0;
     }
 
     /** {@inheritDoc} */
@@ -52,38 +56,21 @@ public class MxParameterServer extends NativeResource implements ParameterServer
 
     /** {@inheritDoc} */
     @Override
-    public void push(String parameterId, NDArray[] grads, int priority) {
-        String[] keys = new String[grads.length];
-        Arrays.fill(keys, parameterId);
-        NDList vals = new NDList(grads);
-        JnaUtils.parameterStorePush(getHandle(), grads.length, keys, vals, priority);
-    }
-
-    /** {@inheritDoc} */
-    @Override
-    public void pull(String parameterId, NDArray[] weights, int priority) {
-        String[] keys = new String[weights.length];
-        Arrays.fill(keys, parameterId);
-        NDList vals = new NDList(weights);
-        JnaUtils.parameterStorePull(getHandle(), weights.length, keys, vals, priority);
-    }
-
-    /** {@inheritDoc} */
-    @Override
-    public void update(String parameterId, NDArray[] inputs, NDArray[] outputs, int priority) {
-        String[] gradKeys = new String[inputs.length];
-        String[] weightKeys = new String[outputs.length];
+    public void update(String parameterId, NDArray[] grads, NDArray[] params) {
+        String[] gradKeys = new String[grads.length];
+        String[] paramKeys = new String[params.length];
         Arrays.fill(gradKeys, parameterId);
-        Arrays.fill(weightKeys, parameterId);
+        Arrays.fill(paramKeys, parameterId);
         JnaUtils.parameterStorePushPull(
                 getHandle(),
-                inputs.length,
+                grads.length,
                 gradKeys,
-                outputs.length,
-                weightKeys,
-                new NDList(inputs),
-                new NDList(outputs),
-                priority);
+                params.length,
+                paramKeys,
+                new NDList(grads),
+                new NDList(params),
+                -priority);
+        priority++;
     }
 
     private static Pointer createdKVStore() {
@@ -112,11 +99,10 @@ public class MxParameterServer extends NativeResource implements ParameterServer
         @Override
         public void apply(String parameterId, Pointer recv, Pointer local, Pointer handle) {
             // updater callback arguments order is: index, gradient, weight.
-            try (MxNDManager manager = MxNDManager.getSystemManager().newSubManager()) {
-                MxNDArray grad = manager.create(recv);
-                MxNDArray weight = manager.create(local);
-                grad.setShouldFree(false);
-                weight.setShouldFree(false);
+            try (NDManager manager = MxNDManager.getSystemManager().newSubManager()) {
+                MxNDManager m = (MxNDManager) manager;
+                MxNDArray grad = m.create(recv);
+                MxNDArray weight = m.create(local);
                 optimizer.update(parameterId, weight, grad);
             }
         }

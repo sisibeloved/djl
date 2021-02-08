@@ -123,12 +123,12 @@ public abstract class Embedding<T> extends AbstractBlock implements AbstractInde
 
     /** {@inheritDoc} */
     @Override
-    public NDList forward(
+    protected NDList forwardInternal(
             ParameterStore parameterStore,
             NDList inputs,
             boolean training,
             PairList<String, Object> params) {
-        NDList opInputs = opInputs(parameterStore, inputs);
+        NDList opInputs = opInputs(parameterStore, inputs, training);
 
         NDArrayEx ex = opInputs.head().getNDArrayInternal();
         NDList result =
@@ -197,7 +197,7 @@ public abstract class Embedding<T> extends AbstractBlock implements AbstractInde
         }
     }
 
-    private NDList opInputs(ParameterStore parameterStore, NDList inputs) {
+    private NDList opInputs(ParameterStore parameterStore, NDList inputs, boolean training) {
         NDArray items = inputs.head();
         Device device = items.getDevice();
 
@@ -207,7 +207,7 @@ public abstract class Embedding<T> extends AbstractBlock implements AbstractInde
         } else {
             ret.add(items);
         }
-        ret.add(parameterStore.getValue(embedding, device));
+        ret.add(parameterStore.getValue(embedding, device, training));
         return ret;
     }
 

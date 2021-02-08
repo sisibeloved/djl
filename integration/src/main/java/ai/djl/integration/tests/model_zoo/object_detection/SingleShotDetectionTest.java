@@ -16,7 +16,7 @@ package ai.djl.integration.tests.model_zoo.object_detection;
 import ai.djl.Application;
 import ai.djl.Device;
 import ai.djl.MalformedModelException;
-import ai.djl.basicdataset.PikachuDetection;
+import ai.djl.basicdataset.cv.PikachuDetection;
 import ai.djl.basicmodelzoo.BasicModelZoo;
 import ai.djl.inference.Predictor;
 import ai.djl.integration.util.TestUtils;
@@ -117,6 +117,7 @@ public class SingleShotDetectionTest {
                 .optUsage(Dataset.Usage.TEST)
                 .optPipeline(pipeline)
                 .setSampling(32, true)
+                .optLimit(64)
                 .build();
     }
 

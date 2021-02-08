@@ -72,15 +72,15 @@ public class Linear extends AbstractBlock {
 
     /** {@inheritDoc} */
     @Override
-    public NDList forward(
+    protected NDList forwardInternal(
             ParameterStore parameterStore,
             NDList inputs,
             boolean training,
             PairList<String, Object> params) {
         NDArray input = inputs.singletonOrThrow();
         Device device = input.getDevice();
-        NDArray weightArr = parameterStore.getValue(weight, device);
-        NDArray biasArr = parameterStore.getValue(bias, device);
+        NDArray weightArr = parameterStore.getValue(weight, device, training);
+        NDArray biasArr = parameterStore.getValue(bias, device, training);
         return linear(input, weightArr, biasArr);
     }
 
@@ -100,7 +100,7 @@ public class Linear extends AbstractBlock {
     /** {@inheritDoc} */
     @Override
     public void beforeInitialize(Shape[] inputShapes) {
-        this.inputShapes = inputShapes;
+        super.beforeInitialize(inputShapes);
         Shape input = inputShapes[0];
         inputFeatures = input.get(input.dimension() - 1);
         inputShape = input.slice(0, input.dimension() - 1);

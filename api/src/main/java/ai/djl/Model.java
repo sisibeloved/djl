@@ -57,7 +57,7 @@ public interface Model extends AutoCloseable {
      * @return a new Model instance
      */
     static Model newInstance(String name) {
-        return newInstance(name, Device.defaultDevice());
+        return newInstance(name, (Device) null);
     }
 
     /**
@@ -79,7 +79,8 @@ public interface Model extends AutoCloseable {
      * @return a new model instance
      */
     static Model newInstance(String name, String engineName) {
-        return Engine.getEngine(engineName).newModel(name, Device.defaultDevice());
+        Engine engine = Engine.getEngine(engineName);
+        return engine.newModel(name, null);
     }
 
     /**
@@ -129,7 +130,7 @@ public interface Model extends AutoCloseable {
      * @throws IOException when IO operation fails in loading a resource
      * @throws MalformedModelException if model file is corrupted
      */
-    void load(Path modelPath, String prefix, Map<String, Object> options)
+    void load(Path modelPath, String prefix, Map<String, ?> options)
             throws IOException, MalformedModelException;
 
     /**
@@ -194,7 +195,6 @@ public interface Model extends AutoCloseable {
      * @return the {@link NDManager}
      */
     NDManager getNDManager();
-
     /**
      * Creates a new {@link Trainer} instance for a Model.
      *
@@ -299,7 +299,9 @@ public interface Model extends AutoCloseable {
      *
      * @param dataType the target dataType you would like to cast to
      */
-    void cast(DataType dataType);
+    default void cast(DataType dataType) {
+        throw new UnsupportedOperationException("Not implemented yet");
+    }
 
     /**
      * Converts the model to use a lower precision quantized network.

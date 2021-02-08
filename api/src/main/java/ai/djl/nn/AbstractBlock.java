@@ -24,10 +24,12 @@ import ai.djl.util.PairList;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.function.Function;
 
 /**
@@ -72,8 +74,8 @@ public abstract class AbstractBlock implements Block {
     /** The shape of the input for this block, set by the initialization process. */
     protected Shape[] inputShapes;
 
-    /** List of names for the input, defaults to ["data"] unless manually changed. */
-    protected List<String> inputNames = Collections.singletonList("data");
+    /** List of names for the input, named inputs should be manually set in sub class. */
+    protected List<String> inputNames = Collections.emptyList();
 
     /**
      * The model version of this block, used for checking if parameters are still valid during
@@ -114,6 +116,26 @@ public abstract class AbstractBlock implements Block {
         this.version = version;
     }
 
+    /** {@inheritDoc} */
+    @Override
+    public final NDList forward(
+            ParameterStore parameterStore,
+            NDList inputs,
+            boolean training,
+            PairList<String, Object> params) {
+        NDManager paramsManager = parameterStore.getManager();
+        if (!isInitialized()) {
+            initialize(paramsManager, DataType.FLOAT32, inputs.getShapes());
+        }
+        return forwardInternal(parameterStore, inputs, training, params);
+    }
+
+    protected abstract NDList forwardInternal(
+            ParameterStore parameterStore,
+            NDList inputs,
+            boolean training,
+            PairList<String, Object> params);
+
     /**
      * Use this to add a child block to this block.
      *
@@ -126,7 +148,7 @@ public abstract class AbstractBlock implements Block {
      */
     protected final <B extends Block> B addChildBlock(String name, B block) {
         int childNumber = children.size() + 1;
-        children.add(String.format("%02d%s", childNumber, name), block);
+        children.add(String.format(Locale.ENGLISH, "%02d%s", childNumber, name), block);
         return block;
     }
 
@@ -211,7 +233,9 @@ public abstract class AbstractBlock implements Block {
     @Override
     public PairList<String, Shape> describeInput() {
         if (!isInitialized()) {
-            throw new IllegalStateException("Parameter of this block are not initialised");
+            throw new IllegalStateException(
+                    "Parameter of this block are not initialised,"
+                            + "please call model.newTrainer and trainer.initialize");
         }
         return new PairList<>(inputNames, Arrays.asList(inputShapes));
     }
@@ -293,6 +317,13 @@ public abstract class AbstractBlock implements Block {
      * @param inputShapes the expected shapes of the input
      */
     protected void beforeInitialize(Shape[] inputShapes) {
+        if (inputNames.isEmpty()) {
+            // automatically assign input names
+            inputNames = new ArrayList<>();
+            for (int i = 0; i < inputShapes.length; ++i) {
+                inputNames.add("data" + i);
+            }
+        }
         this.inputShapes = inputShapes;
     }
 
@@ -395,9 +426,13 @@ public abstract class AbstractBlock implements Block {
 
     protected void readInputShapes(DataInputStream is) throws IOException {
         int len = is.readInt();
-        inputShapes = new Shape[len];
+        Shape[] shapes = new Shape[len];
         for (int i = 0; i < len; ++i) {
-            inputShapes[i] = Shape.decode(is);
+            shapes[i] = Shape.decode(is);
+        }
+        if (inputShapes == null) {
+            // load inputShapes from parameter file if Block has not been initialized
+            inputShapes = shapes;
         }
     }
 

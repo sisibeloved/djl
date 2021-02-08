@@ -16,13 +16,11 @@ import ai.djl.BaseModel;
 import ai.djl.Device;
 import ai.djl.MalformedModelException;
 import ai.djl.Model;
-import ai.djl.inference.Predictor;
 import ai.djl.ndarray.types.DataType;
 import ai.djl.pytorch.jni.JniUtils;
 import ai.djl.training.Trainer;
 import ai.djl.training.TrainingConfig;
 import ai.djl.training.initializer.Initializer;
-import ai.djl.translate.Translator;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -48,14 +46,14 @@ public class PtModel extends BaseModel {
      */
     PtModel(String name, Device device) {
         super(name);
-        device = Device.defaultIfNull(device);
         manager = PtNDManager.getSystemManager().newSubManager(device);
+        manager.setName("ptModel");
         dataType = DataType.FLOAT32;
     }
 
     /** {@inheritDoc} */
     @Override
-    public void load(Path modelPath, String prefix, Map<String, Object> options)
+    public void load(Path modelPath, String prefix, Map<String, ?> options)
             throws IOException, MalformedModelException {
         modelDir = modelPath.toAbsolutePath();
         if (prefix == null) {
@@ -69,7 +67,23 @@ public class PtModel extends BaseModel {
                     throw new FileNotFoundException(".pt file not found in: " + modelDir);
                 }
             }
-            block = JniUtils.loadModule((PtNDManager) manager, modelFile, manager.getDevice());
+            String[] extraFileKeys = new String[0];
+            String[] extraFileValues = new String[0];
+            // load jit extra files
+            if (options != null && options.containsKey("extraFiles")) {
+                extraFileKeys = ((String) options.get("extraFiles")).split(",");
+                extraFileValues = new String[extraFileKeys.length];
+            }
+            block =
+                    JniUtils.loadModule(
+                            (PtNDManager) manager,
+                            modelFile,
+                            manager.getDevice(),
+                            extraFileKeys,
+                            extraFileValues);
+            for (int i = 0; i < extraFileKeys.length; i++) {
+                properties.put(extraFileKeys[i], extraFileValues[i]);
+            }
         } else {
             Path paramFile = paramPathResolver(prefix, options);
             if (paramFile == null) {
@@ -84,6 +98,17 @@ public class PtModel extends BaseModel {
     }
 
     private Path findModelFile(String prefix) {
+        if (Files.isRegularFile(modelDir)) {
+            Path file = modelDir;
+            modelDir = modelDir.getParent();
+            String fileName = file.toFile().getName();
+            if (fileName.endsWith(".pt")) {
+                modelName = fileName.substring(0, fileName.length() - 3);
+            } else {
+                modelName = fileName;
+            }
+            return file;
+        }
         Path modelFile = modelDir.resolve(prefix);
         if (Files.notExists(modelFile) || !Files.isRegularFile(modelFile)) {
             if (prefix.endsWith(".pt")) {
@@ -112,13 +137,6 @@ public class PtModel extends BaseModel {
 
     /** {@inheritDoc} */
     @Override
-    public <I, O> Predictor<I, O> newPredictor(Translator<I, O> translator) {
-        // TODO: modify copy
-        return new Predictor<>(this, translator, false);
-    }
-
-    /** {@inheritDoc} */
-    @Override
     public String[] getArtifactNames() {
         try {
             List<Path> files =
@@ -137,17 +155,5 @@ public class PtModel extends BaseModel {
         } catch (IOException e) {
             throw new AssertionError("Failed list files", e);
         }
-    }
-
-    /** {@inheritDoc} */
-    @Override
-    public void cast(DataType dataType) {
-        throw new UnsupportedOperationException("Not implemented");
-    }
-
-    /** {@inheritDoc} */
-    @Override
-    public void close() {
-        manager.close();
     }
 }

@@ -14,26 +14,31 @@ package ai.djl.examples.training;
 
 import ai.djl.engine.Engine;
 import ai.djl.training.TrainingResult;
-import org.apache.commons.cli.ParseException;
+import java.io.IOException;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
 public class TrainTicTacToeTest {
 
     @Test
-    public void testTrainTicTacToe() throws ParseException {
+    public void testTrainTicTacToe() throws IOException {
         if (Boolean.getBoolean("nightly")) {
-            String[] args = new String[] {"-g", "1"};
-
+            String[] args = new String[] {"-g", "1", "-e", "6"};
             Engine.getInstance().setRandomSeed(1234);
 
             TrainingResult result = TrainTicTacToe.runExample(args);
-            float winRate = result.getValidateEvaluation("winRate");
-            Assert.assertTrue(winRate > 0.8f, "Win Rate: " + winRate);
+            Assert.assertNotNull(result);
+
+            float trainWinRate = result.getTrainEvaluation("winRate");
+            Assert.assertTrue(trainWinRate > 0.8f, "Train win Rate: " + trainWinRate);
+
+            float validationWinRate = result.getValidateEvaluation("winRate");
+            // TicTacToe game run is deterministic when training == false, thus winRate == 0 | 1
+            Assert.assertEquals(validationWinRate, 1f, "Validation Win Rate: " + validationWinRate);
         } else {
             String[] args = new String[] {"-g", "1", "-e", "1", "-m", "1"};
-
-            TrainTicTacToe.runExample(args);
+            TrainingResult result = TrainTicTacToe.runExample(args);
+            Assert.assertNotNull(result);
         }
     }
 }

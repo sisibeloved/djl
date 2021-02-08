@@ -15,6 +15,7 @@ package ai.djl.mxnet.engine;
 import ai.djl.Device;
 import ai.djl.Model;
 import ai.djl.engine.Engine;
+import ai.djl.engine.EngineException;
 import ai.djl.mxnet.jna.JnaUtils;
 import ai.djl.mxnet.jna.LibUtils;
 import ai.djl.ndarray.NDManager;
@@ -23,8 +24,10 @@ import ai.djl.training.LocalParameterServer;
 import ai.djl.training.ParameterServer;
 import ai.djl.training.optimizer.Optimizer;
 import ai.djl.util.RandomUtils;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import java.io.FileNotFoundException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 
 /**
  * The {@code MxEngine} is an implementation of the {@link Engine} based on the <a
@@ -34,8 +37,6 @@ import org.slf4j.LoggerFactory;
  * Engine#getEngine(String)} with the Engine name "MXNet".
  */
 public final class MxEngine extends Engine {
-
-    private static final Logger logger = LoggerFactory.getLogger(MxEngine.class);
 
     public static final String ENGINE_NAME = "MXNet";
 
@@ -52,17 +53,35 @@ public final class MxEngine extends Engine {
             // Workaround MXNet shutdown crash issue
             Runtime.getRuntime().addShutdownHook(new Thread(JnaUtils::waitAll)); // NOPMD
 
+            // load extra MXNet library
+            String paths = System.getenv("MXNET_EXTRA_LIBRARY_PATH");
+            if (paths != null) {
+                String[] files = paths.split(",");
+                for (String file : files) {
+                    Path path = Paths.get(file);
+                    if (Files.notExists(path)) {
+                        throw new FileNotFoundException("Extra Library not found: " + file);
+                    }
+                    JnaUtils.loadLib(path.toAbsolutePath().toString(), 1);
+                }
+            }
+
             return new MxEngine();
         } catch (Throwable t) {
-            logger.warn("Failed to load MXNet native library", t);
+            throw new EngineException("Failed to load MXNet native library", t);
         }
-        return null;
     }
 
     /** {@inheritDoc} */
     @Override
     public String getEngineName() {
         return ENGINE_NAME;
+    }
+
+    /** {@inheritDoc} */
+    @Override
+    public int getRank() {
+        return 1;
     }
 
     /** {@inheritDoc} */
@@ -123,25 +142,13 @@ public final class MxEngine extends Engine {
 
     /** {@inheritDoc} */
     @Override
-    public void debugEnvironment() {
-        super.debugEnvironment();
-        logger.info("MXNet Library: {}", LibUtils.getLibName());
-        logger.info("MXNet Features: {}", String.join(", ", JnaUtils.getFeatures()));
-    }
-
-    /** {@inheritDoc} */
-    @Override
     public String toString() {
         StringBuilder sb = new StringBuilder(200);
-        sb.append("Name: ")
-                .append(getEngineName())
-                .append(", version: ")
-                .append(getVersion())
-                .append(", capabilities: [\n");
+        sb.append(getEngineName()).append(':').append(getVersion()).append(", capabilities: [\n");
         for (String feature : JnaUtils.getFeatures()) {
             sb.append("\t").append(feature).append(",\n"); // NOPMD
         }
-        sb.append(']');
+        sb.append("]\nMXNet Library: ").append(LibUtils.getLibName());
         return sb.toString();
     }
 }

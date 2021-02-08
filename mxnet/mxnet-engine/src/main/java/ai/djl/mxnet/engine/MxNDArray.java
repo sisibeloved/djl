@@ -14,7 +14,6 @@ package ai.djl.mxnet.engine;
 
 import ai.djl.Device;
 import ai.djl.mxnet.jna.JnaUtils;
-import ai.djl.mxnet.jna.NativeResource;
 import ai.djl.ndarray.LazyNDArray;
 import ai.djl.ndarray.NDArray;
 import ai.djl.ndarray.NDList;
@@ -23,6 +22,7 @@ import ai.djl.ndarray.internal.NDArrayEx;
 import ai.djl.ndarray.types.DataType;
 import ai.djl.ndarray.types.Shape;
 import ai.djl.ndarray.types.SparseFormat;
+import ai.djl.util.NativeResource;
 import com.sun.jna.Native;
 import com.sun.jna.Pointer;
 import java.nio.Buffer;
@@ -35,7 +35,7 @@ import java.util.Arrays;
 import java.util.stream.IntStream;
 
 /** {@code MxNDArray} is the MXNet implementation of {@link NDArray}. */
-public class MxNDArray extends NativeResource implements LazyNDArray {
+public class MxNDArray extends NativeResource<Pointer> implements LazyNDArray {
 
     private static final int MAX_SIZE = 100;
     private static final int MAX_DEPTH = 10;
@@ -50,11 +50,8 @@ public class MxNDArray extends NativeResource implements LazyNDArray {
     // use Boolean object to maintain three status: false, true
     // and null which means the flag is not set by the native engine yet
     private Boolean hasGradient;
-    private MxNDManager manager;
+    protected MxNDManager manager;
     private MxNDArrayEx mxNDArrayEx;
-
-    // Whether the NDArray should be freed on closing. Used for callbacks like kvstore update
-    private boolean shouldFree = true;
 
     /**
      * Constructs an MxNDArray from a native handle and metadata (internal. Use {@link NDManager}
@@ -166,10 +163,12 @@ public class MxNDArray extends NativeResource implements LazyNDArray {
 
     /** {@inheritDoc} */
     @Override
-    public void attach(NDManager manager) {
+    public NDManager attach(NDManager manager) {
+        NDManager original = this.manager;
         detach();
         this.manager = (MxNDManager) manager;
         manager.attach(getUid(), this);
+        return original;
     }
 
     /** {@inheritDoc} */
@@ -206,19 +205,6 @@ public class MxNDArray extends NativeResource implements LazyNDArray {
         }
         // TODO support copy
         return duplicate(getManager(), getShape(), dataType, getDevice(), getName());
-    }
-
-    /**
-     * Sets whether to free the MxNDArray when it is closed (internal).
-     *
-     * <p>It should not be freed in cases such as MxParameterServer optimizer callback where the
-     * NDArray is merely intended to be read, not freed. Otherwise, leave it as the deafult (should
-     * free).
-     *
-     * @param shouldFree {@code true} if the MxNDArray should be freed on close
-     */
-    public void setShouldFree(boolean shouldFree) {
-        this.shouldFree = shouldFree;
     }
 
     /**
@@ -282,6 +268,11 @@ public class MxNDArray extends NativeResource implements LazyNDArray {
         return hasGradient;
     }
 
+    @Override
+    public NDArray stopGradient() {
+        return manager.invoke("stop_gradient", this, null);
+    }
+
     /** {@inheritDoc} */
     @Override
     public ByteBuffer toByteBuffer() {
@@ -298,15 +289,17 @@ public class MxNDArray extends NativeResource implements LazyNDArray {
     /** {@inheritDoc} */
     @Override
     public void set(Buffer data) {
+
+        if (data.isDirect()) {
+            int size = Math.toIntExact(getShape().size());
+            JnaUtils.syncCopyFromCPU(getHandle(), data, size);
+            return;
+        }
+
         int size = data.remaining();
         // int8, uint8, boolean use ByteBuffer, so need to explicitly input DataType
         DataType inputType = DataType.fromBuffer(data);
         validate(inputType, size);
-
-        if (data.isDirect()) {
-            JnaUtils.syncCopyFromCPU(getHandle(), data, size);
-            return;
-        }
 
         int numOfBytes = inputType.getNumOfBytes();
         ByteBuffer buf = manager.allocateDirect(size * numOfBytes);
@@ -331,8 +324,9 @@ public class MxNDArray extends NativeResource implements LazyNDArray {
                 break;
             case FLOAT16:
             default:
-                throw new AssertionError("Show never happen");
+                throw new UnsupportedOperationException("data type is not supported!");
         }
+        buf.rewind();
         JnaUtils.syncCopyFromCPU(getHandle(), buf, size);
     }
 
@@ -574,6 +568,9 @@ public class MxNDArray extends NativeResource implements LazyNDArray {
     public NDArray toSparse(SparseFormat fmt) {
         if (fmt == SparseFormat.DENSE) {
             throw new IllegalArgumentException("Default type is not allowed");
+        }
+        if (fmt != SparseFormat.CSR && fmt != SparseFormat.ROW_SPARSE) {
+            throw new UnsupportedOperationException(fmt + "is not supported");
         }
         if (fmt == getSparseFormat()) {
             return duplicate();
@@ -1035,6 +1032,18 @@ public class MxNDArray extends NativeResource implements LazyNDArray {
 
     /** {@inheritDoc} */
     @Override
+    public NDArray rotate90(int times, int[] axes) {
+        if (axes.length != 2) {
+            throw new IllegalArgumentException("Axes must be 2");
+        }
+        MxOpParams params = new MxOpParams();
+        params.addTupleParam("axes", axes);
+        params.addParam("k", times);
+        return manager.invoke("_npi_rot90", this, params);
+    }
+
+    /** {@inheritDoc} */
+    @Override
     public NDArray trace(int offset, int axis1, int axis2) {
         MxOpParams params = new MxOpParams();
         params.addParam("offset", offset);
@@ -1046,6 +1055,9 @@ public class MxNDArray extends NativeResource implements LazyNDArray {
     /** {@inheritDoc} */
     @Override
     public NDList split(long[] indices, int axis) {
+        if (indices.length == 0) {
+            return new NDList(this);
+        }
         MxOpParams params = new MxOpParams();
         // follow the numpy behavior
         if (indices[0] != 0) {
@@ -1352,6 +1364,7 @@ public class MxNDArray extends NativeResource implements LazyNDArray {
         return manager.invoke("_npi_swapaxes", this, params);
     }
 
+    /** {@inheritDoc} */
     @Override
     public NDArray flip(int... axes) {
         MxOpParams params = new MxOpParams();
@@ -1460,6 +1473,31 @@ public class MxNDArray extends NativeResource implements LazyNDArray {
 
     /** {@inheritDoc} */
     @Override
+    public NDArray erfinv() {
+        return manager.invoke("erfinv", this, null);
+    }
+
+    /** {@inheritDoc} */
+    @Override
+    public NDArray norm(boolean keepDims) {
+        MxOpParams params = new MxOpParams();
+        params.add("flag", -2);
+        params.addParam("keepdims", keepDims);
+        return manager.invoke("_npi_norm", this, params);
+    }
+
+    /** {@inheritDoc} */
+    @Override
+    public NDArray norm(int ord, int[] axes, boolean keepDims) {
+        MxOpParams params = new MxOpParams();
+        params.addParam("ord", (double) ord);
+        params.addTupleParam("axis", axes);
+        params.addParam("keepdims", keepDims);
+        return manager.invoke("_npi_norm", this, params);
+    }
+
+    /** {@inheritDoc} */
+    @Override
     public NDArrayEx getNDArrayInternal() {
         return mxNDArrayEx;
     }
@@ -1549,9 +1587,6 @@ public class MxNDArray extends NativeResource implements LazyNDArray {
     /** {@inheritDoc} */
     @Override
     public void close() {
-        if (!shouldFree) {
-            return;
-        }
         Pointer pointer = handle.getAndSet(null);
         if (pointer != null) {
             JnaUtils.waitToRead(pointer);

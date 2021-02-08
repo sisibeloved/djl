@@ -10,7 +10,7 @@ elif [[ -n $(command -v sysctl) ]]; then
     NUM_PROC=$(sysctl -n hw.ncpu)
 fi
 
-VERSION=1.5.0
+VERSION=1.7.1
 if [[ ! -d libtorch_android/"$1" ]]; then
     if [[ $1 != "armeabi-v7a" ]] && [[ $1 != "arm64-v8a" ]] && [[ $1 != "x86" ]] && [[ $1 != "x86_64" ]]; then
         echo "$1 is not supported."
@@ -18,7 +18,7 @@ if [[ ! -d libtorch_android/"$1" ]]; then
     else
         mkdir -p libtorch_android/"$1"
         cd libtorch_android/"$1"
-        curl -s https://djl-ai.s3.amazonaws.com/publish/pytorch-"{$VERSION}/android_native/{$1}"_native.zip | jar xv
+        curl -s https://publish.djl.ai/pytorch-"{$VERSION}/android_native/{$1}"_native.zip | jar xv
         cd ../../
     fi
 fi

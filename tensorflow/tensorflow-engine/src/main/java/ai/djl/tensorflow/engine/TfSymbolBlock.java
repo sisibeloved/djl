@@ -13,20 +13,22 @@
 
 package ai.djl.tensorflow.engine;
 
+import ai.djl.ndarray.NDArray;
 import ai.djl.ndarray.NDList;
 import ai.djl.ndarray.NDManager;
 import ai.djl.ndarray.types.DataType;
 import ai.djl.ndarray.types.Shape;
-import ai.djl.nn.BlockList;
-import ai.djl.nn.ParameterList;
-import ai.djl.nn.SymbolBlock;
+import ai.djl.nn.AbstractSymbolBlock;
 import ai.djl.training.ParameterStore;
-import ai.djl.training.initializer.Initializer;
 import ai.djl.util.PairList;
-import java.io.DataInputStream;
-import java.io.DataOutputStream;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.tensorflow.SavedModelBundle;
 import org.tensorflow.Session;
 import org.tensorflow.Tensor;
@@ -35,16 +37,44 @@ import org.tensorflow.proto.framework.SignatureDef;
 import org.tensorflow.proto.framework.TensorInfo;
 import org.tensorflow.proto.framework.TensorShapeProto;
 
-public class TfSymbolBlock implements SymbolBlock {
+public class TfSymbolBlock extends AbstractSymbolBlock implements AutoCloseable {
+
+    private static final Logger logger = LoggerFactory.getLogger(TfSymbolBlock.class);
+
+    private static final byte VERSION = 1;
 
     private SavedModelBundle bundle;
-    private MetaGraphDef metaGraphDef;
     private Session session;
+    private SignatureDef servingDefault;
+    private PairList<String, Shape> inputDescriptions;
+    private PairList<String, Shape> outputDescriptions;
+    // store mapping of meaningful key names and actual tensor names used in session
+    private ConcurrentHashMap<String, String> inputOutputNames = new ConcurrentHashMap<>();
 
-    public TfSymbolBlock(SavedModelBundle bundle) {
+    public TfSymbolBlock(SavedModelBundle bundle, String signatureDefKey) {
+        super(VERSION);
         this.bundle = bundle;
         session = bundle.session();
-        metaGraphDef = bundle.metaGraphDef();
+        MetaGraphDef metaGraphDef = bundle.metaGraphDef();
+        Map<String, SignatureDef> signatureDefMap = metaGraphDef.getSignatureDefMap();
+        if (signatureDefMap.containsKey(signatureDefKey)) {
+            servingDefault = signatureDefMap.get(signatureDefKey);
+        } else {
+            Set<String> keys = signatureDefMap.keySet();
+            logger.warn(
+                    "SignatureDefKey: "
+                            + signatureDefKey
+                            + "not found in Saved Model Bundle."
+                            + "Available keys: "
+                            + String.join(" ", keys)
+                            + "Please use .optOptions(\"SignatureDefKey\", \"value\") with Criteria.builder to load the model."
+                            + "Normally the value is \"default\" for TF1.x models and \"serving_default\" for TF2.x models. "
+                            + "Refer to: https://www.tensorflow.org/guide/saved_model"
+                            + "Loading the model using next available key.");
+            servingDefault = signatureDefMap.get(keys.iterator().next());
+        }
+        describeInput();
+        describeOutput();
     }
 
     /** {@inheritDoc} */
@@ -55,42 +85,48 @@ public class TfSymbolBlock implements SymbolBlock {
 
     /** {@inheritDoc} */
     @Override
-    public NDList forward(
+    protected NDList forwardInternal(
             ParameterStore parameterStore,
             NDList inputs,
             boolean training,
             PairList<String, Object> params) {
         Session.Runner runner = session.runner();
-        PairList<String, Shape> inputDescriptions = describeInput();
-        PairList<String, Shape> outputDescriptions = describeOutput();
-
         for (int i = 0; i < inputDescriptions.size(); i++) {
-            runner.feed(inputDescriptions.get(i).getKey(), ((TfNDArray) inputs.get(i)).getTensor());
+            String inputName = inputDescriptions.get(i).getKey();
+            String tensorName = inputOutputNames.get(inputName);
+
+            NDArray inputArray = inputs.get(i);
+            // no name specified in input array, use default order from translator
+            if (inputArray.getName().isEmpty()) {
+                runner.feed(tensorName, ((TfNDArray) inputArray).getTensor());
+            } else {
+                if (inputArray.getName().equals(inputName)) {
+                    runner.feed(tensorName, ((TfNDArray) inputArray).getTensor());
+                } else {
+                    // find the array with correct name
+                    for (NDArray array : inputs) {
+                        if (array.getName().equals(inputName)) {
+                            runner.feed(tensorName, ((TfNDArray) array).getTensor());
+                        }
+                    }
+                }
+            }
         }
         for (int i = 0; i < outputDescriptions.size(); i++) {
-            runner.fetch(outputDescriptions.get(i).getKey());
+            String key = outputDescriptions.get(i).getKey();
+            runner.fetch(inputOutputNames.get(key));
         }
         List<Tensor<?>> result = runner.run();
-
-        NDList resultNDList = new NDList();
         TfNDManager tfNDManager = (TfNDManager) inputs.head().getManager();
-        for (Tensor<?> tensor : result) {
-            resultNDList.add(tfNDManager.create(tensor));
-            tensor.close();
+        NDList resultNDList = new NDList();
+        for (int i = 0; i < result.size(); i++) {
+            try (Tensor<?> tensor = result.get(i)) {
+                NDArray array = tfNDManager.create(tensor);
+                array.setName(outputDescriptions.get(i).getKey());
+                resultNDList.add(array);
+            }
         }
         return resultNDList;
-    }
-
-    /** {@inheritDoc} */
-    @Override
-    public void setInitializer(Initializer initializer) {
-        throw new UnsupportedOperationException("Not supported for TensorFlow Engine");
-    }
-
-    /** {@inheritDoc} */
-    @Override
-    public void setInitializer(Initializer initializer, String paramName) {
-        throw new UnsupportedOperationException("Not supported for TensorFlow Engine");
     }
 
     /** {@inheritDoc} */
@@ -107,85 +143,56 @@ public class TfSymbolBlock implements SymbolBlock {
 
     /** {@inheritDoc} */
     @Override
-    public void cast(DataType dataType) {
-        throw new UnsupportedOperationException("Not supported for TensorFlow Engine");
-    }
-
-    /** {@inheritDoc} */
-    @Override
-    public void clear() {
-        if (session != null) {
-            session.close();
-        }
-        if (bundle != null) {
-            bundle.close();
-        }
-    }
-
-    /** {@inheritDoc} */
-    @Override
-    public PairList<String, Shape> describeInput() {
-        PairList<String, Shape> inputDescriptions = new PairList<>();
-        Map<String, SignatureDef> signatureDefMap = metaGraphDef.getSignatureDefMap();
-        SignatureDef servingDefault = signatureDefMap.entrySet().iterator().next().getValue();
-        for (Map.Entry<String, TensorInfo> entry : servingDefault.getInputsMap().entrySet()) {
-            TensorShapeProto shapeProto = entry.getValue().getTensorShape();
-            inputDescriptions.add(
-                    entry.getValue().getName(),
-                    new Shape(
-                            shapeProto
-                                    .getDimList()
-                                    .stream()
-                                    .mapToLong(TensorShapeProto.Dim::getSize)
-                                    .toArray()));
+    public final PairList<String, Shape> describeInput() {
+        if (inputDescriptions == null) {
+            inputDescriptions = new PairList<>();
+            Map<String, TensorInfo> inputsMap = servingDefault.getInputsMap();
+            List<String> keys = new ArrayList<>(inputsMap.keySet());
+            Collections.sort(keys);
+            for (String key : keys) {
+                TensorInfo tensorInfo = inputsMap.get(key);
+                TensorShapeProto shapeProto = tensorInfo.getTensorShape();
+                inputOutputNames.put(key, tensorInfo.getName());
+                inputDescriptions.add(
+                        key,
+                        new Shape(
+                                shapeProto
+                                        .getDimList()
+                                        .stream()
+                                        .mapToLong(TensorShapeProto.Dim::getSize)
+                                        .toArray()));
+            }
         }
         return inputDescriptions;
     }
 
-    PairList<String, Shape> describeOutput() {
-        PairList<String, Shape> outputDescription = new PairList<>();
-        Map<String, SignatureDef> signatureDefMap = metaGraphDef.getSignatureDefMap();
-        SignatureDef servingDefault = signatureDefMap.entrySet().iterator().next().getValue();
-        for (Map.Entry<String, TensorInfo> entry : servingDefault.getOutputsMap().entrySet()) {
-            TensorShapeProto shapeProto = entry.getValue().getTensorShape();
-            // does not support string tensors
-            if (entry.getValue().getDtype() == org.tensorflow.proto.framework.DataType.DT_STRING) {
-                continue;
+    /** {@inheritDoc} */
+    @Override
+    public final PairList<String, Shape> describeOutput() {
+        if (outputDescriptions == null) {
+            outputDescriptions = new PairList<>();
+            Map<String, TensorInfo> outputsMap = servingDefault.getOutputsMap();
+            List<String> keys = new ArrayList<>(outputsMap.keySet());
+            Collections.sort(keys);
+            for (String key : keys) {
+                TensorInfo tensorInfo = outputsMap.get(key);
+                TensorShapeProto shapeProto = tensorInfo.getTensorShape();
+                // does not support string tensors
+                if (tensorInfo.getDtype() == org.tensorflow.proto.framework.DataType.DT_STRING) {
+                    continue;
+                }
+                inputOutputNames.put(key, tensorInfo.getName());
+                outputDescriptions.add(
+                        key,
+                        new Shape(
+                                shapeProto
+                                        .getDimList()
+                                        .stream()
+                                        .mapToLong(TensorShapeProto.Dim::getSize)
+                                        .toArray()));
             }
-            outputDescription.add(
-                    entry.getValue().getName(),
-                    new Shape(
-                            shapeProto
-                                    .getDimList()
-                                    .stream()
-                                    .mapToLong(TensorShapeProto.Dim::getSize)
-                                    .toArray()));
         }
-        return outputDescription;
-    }
-
-    /** {@inheritDoc} */
-    @Override
-    public BlockList getChildren() {
-        throw new UnsupportedOperationException("Not supported for TensorFlow Engine");
-    }
-
-    /** {@inheritDoc} */
-    @Override
-    public ParameterList getDirectParameters() {
-        throw new UnsupportedOperationException("Not supported for TensorFlow Engine");
-    }
-
-    /** {@inheritDoc} */
-    @Override
-    public ParameterList getParameters() {
-        throw new UnsupportedOperationException("Not supported for TensorFlow Engine");
-    }
-
-    /** {@inheritDoc} */
-    @Override
-    public Shape getParameterShape(String name, Shape[] inputShapes) {
-        throw new UnsupportedOperationException("Not supported for TensorFlow Engine");
+        return outputDescriptions;
     }
 
     /** {@inheritDoc} */
@@ -196,13 +203,12 @@ public class TfSymbolBlock implements SymbolBlock {
 
     /** {@inheritDoc} */
     @Override
-    public void saveParameters(DataOutputStream os) {
-        throw new UnsupportedOperationException("Not supported for TensorFlow Engine");
-    }
-
-    /** {@inheritDoc} */
-    @Override
-    public void loadParameters(NDManager manager, DataInputStream is) {
-        throw new UnsupportedOperationException("Not supported for TensorFlow Engine");
+    public void close() {
+        if (session != null) {
+            session.close();
+        }
+        if (bundle != null) {
+            bundle.close();
+        }
     }
 }

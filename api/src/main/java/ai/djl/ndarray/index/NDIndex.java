@@ -46,8 +46,10 @@ import java.util.stream.Stream;
  */
 public class NDIndex {
 
+    /* Android regex requires escape } char as well */
     private static final Pattern ITEM_PATTERN =
-            Pattern.compile("(\\*)|((-?\\d+|\\{})?:(-?\\d+|\\{})?(:(-?\\d+|\\{}))?)|(-?\\d+|\\{})");
+            Pattern.compile(
+                    "(\\*)|((-?\\d+|\\{\\})?:(-?\\d+|\\{\\})?(:(-?\\d+|\\{\\}))?)|(-?\\d+|\\{\\})");
 
     private int rank;
     private List<NDIndexElement> indices;
@@ -106,7 +108,7 @@ public class NDIndex {
      *
      * @param indices a comma separated list of indices corresponding to either subsections,
      *     everything, or slices on a particular dimension
-     * @param args arguments to replace the varaible "{}" in the indices string. Can be an integer,
+     * @param args arguments to replace the variable "{}" in the indices string. Can be an integer,
      *     long, boolean {@link NDArray}, or integer {@link NDArray}.
      * @see <a href="https://docs.scipy.org/doc/numpy/reference/arrays.indexing.html">Numpy
      *     Indexing</a>
@@ -185,7 +187,7 @@ public class NDIndex {
      * Updates the NDIndex by appending indices to the array.
      *
      * @param indices the indices to add similar to {@link #NDIndex(String, Object...)}
-     * @param args arguments to replace the varaible "{}" in the indices string. Can be an integer,
+     * @param args arguments to replace the variable "{}" in the indices string. Can be an integer,
      *     long, boolean {@link NDArray}, or integer {@link NDArray}.
      * @return the updated {@link NDIndex}
      * @see #NDIndex(String, Object...)
@@ -195,7 +197,7 @@ public class NDIndex {
         rank += indexItems.length;
         int argIndex = 0;
         for (int i = 0; i < indexItems.length; ++i) {
-            if (indexItems[i].trim().equals("...")) {
+            if ("...".equals(indexItems[i].trim())) {
                 // make sure ellipsis appear only once
                 if (ellipsisIndex != -1) {
                     throw new IllegalArgumentException(

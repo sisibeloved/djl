@@ -14,12 +14,12 @@ package ai.djl.mxnet.engine;
 
 import ai.djl.Device;
 import ai.djl.mxnet.jna.JnaUtils;
-import ai.djl.mxnet.jna.NativeResource;
 import ai.djl.ndarray.NDArray;
 import ai.djl.ndarray.NDList;
 import ai.djl.ndarray.types.Shape;
 import ai.djl.nn.Parameter;
 import ai.djl.training.ParameterStore;
+import ai.djl.util.NativeResource;
 import ai.djl.util.Pair;
 import ai.djl.util.PairList;
 import com.sun.jna.Pointer;
@@ -37,12 +37,11 @@ import org.slf4j.LoggerFactory;
  * analyzing the input shape. It requires minimum input to do inference because most of the
  * information can be obtained from the model itself.
  */
-public class CachedOp extends NativeResource {
+public class CachedOp extends NativeResource<Pointer> {
 
     private static final Logger logger = LoggerFactory.getLogger(CachedOp.class);
 
     private List<Parameter> parameters;
-    private MxNDArray[] debugInputs;
     private PairList<String, Integer> dataIndices;
     private Map<String, Integer> dataIndicesMap;
     private List<Integer> paramIndices;
@@ -51,7 +50,8 @@ public class CachedOp extends NativeResource {
     /**
      * Creates an instance of {@link CachedOp}.
      *
-     * <p>It can be created by using {@link JnaUtils#createCachedOp(MxSymbolBlock, MxNDManager)}
+     * <p>It can be created by using {@link JnaUtils#createCachedOp(MxSymbolBlock, MxNDManager,
+     * boolean)}
      *
      * @param handle the C handle of the CachedOp
      * @param manager the manager used to create the NDArray
@@ -81,22 +81,22 @@ public class CachedOp extends NativeResource {
      *
      * @param parameterStore the parameterStore
      * @param data the input in {@link NDList} format
+     * @param training true for a training forward pass
      * @return an {@link NDList}
      */
-    public NDList forward(ParameterStore parameterStore, NDList data) {
+    public NDList forward(ParameterStore parameterStore, NDList data, boolean training) {
         // reset the input data index at the beginning
         MxNDArray[] allInputsNDArray = new MxNDArray[parameters.size()];
-        // for unit test purpose, we export the current one to global
-        this.debugInputs = allInputsNDArray;
         // check device of input
         Device device = data.head().getDevice();
         // get the manager of the data
+
         MxNDManager inputManager = (MxNDManager) data.head().getManager();
 
         // fill allInputsNDArray with parameter values on correct device
         for (int index : paramIndices) {
             Parameter parameter = parameters.get(index);
-            MxNDArray value = (MxNDArray) parameterStore.getValue(parameter, device);
+            MxNDArray value = (MxNDArray) parameterStore.getValue(parameter, device, training);
             if (value == null) {
                 throw new NullPointerException("Failed to find parameter from parameterStore");
             }
@@ -132,15 +132,6 @@ public class CachedOp extends NativeResource {
         }
         MxNDArray[] result = JnaUtils.cachedOpInvoke(inputManager, getHandle(), allInputsNDArray);
         return new NDList(result);
-    }
-
-    /**
-     * Gets an input NDArray. For unit tests only.
-     *
-     * @return an array of NDArray
-     */
-    MxNDArray[] getInputNDArray() {
-        return debugInputs;
     }
 
     /** {@inheritDoc} */

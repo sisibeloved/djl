@@ -14,7 +14,9 @@ package ai.djl.integration.tests.model_zoo;
 
 import ai.djl.Model;
 import ai.djl.ModelException;
+import ai.djl.ndarray.NDList;
 import ai.djl.repository.Artifact;
+import ai.djl.repository.zoo.Criteria;
 import ai.djl.repository.zoo.ModelLoader;
 import ai.djl.repository.zoo.ModelZoo;
 import ai.djl.repository.zoo.ZooProvider;
@@ -23,6 +25,7 @@ import java.io.IOException;
 import java.nio.file.Paths;
 import java.util.List;
 import java.util.ServiceLoader;
+import org.testng.SkipException;
 import org.testng.annotations.AfterClass;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
@@ -45,17 +48,22 @@ public class ModelZooTest {
     @Test
     public void testDownloadModels() throws IOException, ModelException {
         if (!Boolean.getBoolean("nightly") || Boolean.getBoolean("offline")) {
-            return;
+            throw new SkipException("Nightly only");
         }
 
         ServiceLoader<ZooProvider> providers = ServiceLoader.load(ZooProvider.class);
         for (ZooProvider provider : providers) {
             ModelZoo zoo = provider.getModelZoo();
             if (zoo != null) {
-                for (ModelLoader<?, ?> modelLoader : zoo.getModelLoaders()) {
+                for (ModelLoader modelLoader : zoo.getModelLoaders()) {
                     List<Artifact> artifacts = modelLoader.listModels();
                     for (Artifact artifact : artifacts) {
-                        Model model = modelLoader.loadModel(artifact.getProperties());
+                        Criteria<NDList, NDList> criteria =
+                                Criteria.builder()
+                                        .setTypes(NDList.class, NDList.class)
+                                        .optFilters(artifact.getProperties())
+                                        .build();
+                        Model model = modelLoader.loadModel(criteria);
                         model.close();
                     }
                     Utils.deleteQuietly(Paths.get("build/cache"));

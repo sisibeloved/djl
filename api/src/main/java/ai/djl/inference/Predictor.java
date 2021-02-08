@@ -13,6 +13,7 @@
 package ai.djl.inference;
 
 import ai.djl.Model;
+import ai.djl.engine.EngineException;
 import ai.djl.metric.Metrics;
 import ai.djl.ndarray.LazyNDArray;
 import ai.djl.ndarray.NDArray;
@@ -81,8 +82,8 @@ public class Predictor<I, O> implements AutoCloseable {
     private Model model;
     private NDManager manager;
     Metrics metrics;
-    private Block block;
-    private ParameterStore parameterStore;
+    protected Block block;
+    protected ParameterStore parameterStore;
 
     /**
      * Creates a new instance of {@code BasePredictor} with the given {@link Model} and {@link
@@ -95,6 +96,7 @@ public class Predictor<I, O> implements AutoCloseable {
     public Predictor(Model model, Translator<I, O> translator, boolean copy) {
         this.model = model;
         this.manager = model.getNDManager().newSubManager();
+        this.manager.setName("predictor");
         this.translator = translator;
         block = model.getBlock();
         parameterStore = new ParameterStore(manager, copy);
@@ -124,7 +126,7 @@ public class Predictor<I, O> implements AutoCloseable {
      * @return a list of output objects defined by the user
      * @throws TranslateException if an error occurs during prediction
      */
-    @SuppressWarnings("PMD.AvoidRethrowingException")
+    @SuppressWarnings({"PMD.AvoidRethrowingException", "PMD.IdenticalCatchBranches"})
     public List<O> batchPredict(List<I> inputs) throws TranslateException {
         long begin = System.nanoTime();
         try (PredictorContext context = new PredictorContext()) {
@@ -160,6 +162,8 @@ public class Predictor<I, O> implements AutoCloseable {
             List<O> ret = processOutputs(context, result);
             postProcessEnd(begin);
             return ret;
+        } catch (EngineException e) {
+            throw new TranslateException(e);
         } catch (RuntimeException e) {
             throw e;
         } catch (Exception e) {
@@ -246,7 +250,7 @@ public class Predictor<I, O> implements AutoCloseable {
     protected void finalize() throws Throwable {
         if (manager.isOpen()) {
             if (logger.isDebugEnabled()) {
-                logger.warn("Predictor was not closed explicitly: {}", getClass().getSimpleName());
+                logger.warn("Predictor for {} was not closed explicitly.", model.getName());
             }
             close();
         }
@@ -260,6 +264,7 @@ public class Predictor<I, O> implements AutoCloseable {
 
         PredictorContext() {
             ctxManager = manager.newSubManager();
+            ctxManager.setName("predictor ctx");
             attachments = new ConcurrentHashMap<>();
         }
 

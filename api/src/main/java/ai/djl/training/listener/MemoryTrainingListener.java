@@ -91,12 +91,12 @@ public class MemoryTrainingListener extends TrainingListenerAdapter {
             MemoryUsage heap = memBean.getHeapMemoryUsage();
             MemoryUsage nonHeap = memBean.getNonHeapMemoryUsage();
 
-            long heapCommitted = heap.getCommitted();
-            long nonHeapCommitted = nonHeap.getCommitted();
+            long heapUsed = heap.getUsed();
+            long nonHeapUsed = nonHeap.getUsed();
             getProcessInfo(metrics);
 
-            metrics.addMetric("Heap", heapCommitted, "bytes");
-            metrics.addMetric("NonHeap", nonHeapCommitted, "bytes");
+            metrics.addMetric("Heap", heapUsed, "bytes");
+            metrics.addMetric("NonHeap", nonHeapUsed, "bytes");
             int gpuCount = Device.getGpuCount();
 
             // CudaUtils.getGpuMemory() will allocates memory on GPUs if CUDA runtime is not
@@ -163,9 +163,9 @@ public class MemoryTrainingListener extends TrainingListenerAdapter {
                         return;
                     }
                     float cpu = Float.parseFloat(tokens[0]);
-                    long rss = Long.parseLong(tokens[1]);
+                    long rss = Long.parseLong(tokens[1]) * 1024;
                     metrics.addMetric("cpu", cpu, "%");
-                    metrics.addMetric("rss", rss, "KB");
+                    metrics.addMetric("rss", rss, "bytes");
                 }
             } catch (IOException e) {
                 logger.error("Failed execute cmd: " + cmd, e);

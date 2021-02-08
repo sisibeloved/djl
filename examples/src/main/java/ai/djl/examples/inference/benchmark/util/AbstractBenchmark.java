@@ -29,6 +29,7 @@ import ai.djl.translate.TranslateException;
 import ai.djl.translate.Translator;
 import ai.djl.translate.TranslatorContext;
 import java.io.IOException;
+import java.nio.FloatBuffer;
 import java.time.Duration;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.DefaultParser;
@@ -129,6 +130,9 @@ public abstract class AbstractBenchmark {
                 progressBar = new ProgressBar("Iteration", iteration);
                 long begin = System.currentTimeMillis();
                 lastResult = predict(arguments, metrics, iteration);
+                if (lastResult == null) {
+                    return false;
+                }
 
                 if (metrics.hasMetric("mt_start")) {
                     begin = metrics.getMetric("mt_start").get(0).getValue().longValue();
@@ -213,15 +217,43 @@ public abstract class AbstractBenchmark {
                                     postP50, postP90, postP99));
 
                     if (Boolean.getBoolean("collect-memory")) {
+                        float heapBeforeModel =
+                                metrics.getMetric("Heap").get(0).getValue().longValue();
+                        float heapBeforeInference =
+                                metrics.getMetric("Heap").get(1).getValue().longValue();
                         float heap = metrics.percentile("Heap", 90).getValue().longValue();
                         float nonHeap = metrics.percentile("NonHeap", 90).getValue().longValue();
                         float cpu = metrics.percentile("cpu", 90).getValue().longValue();
+                        float rssBeforeModel =
+                                metrics.getMetric("rss").get(0).getValue().longValue();
+                        float rssBeforeInference =
+                                metrics.getMetric("rss").get(1).getValue().longValue();
                         float rss = metrics.percentile("rss", 90).getValue().longValue();
 
-                        logger.info(String.format("heap P90: %.3f", heap));
-                        logger.info(String.format("nonHeap P90: %.3f", nonHeap));
-                        logger.info(String.format("cpu P90: %.3f", cpu));
-                        logger.info(String.format("rss P90: %.3f", rss));
+                        logger.info(
+                                String.format(
+                                        "heap (base): %.3f MB", heapBeforeModel / (1024 * 1024)));
+                        logger.info(
+                                String.format(
+                                        "heap (model): %.3f MB",
+                                        (heapBeforeInference - heapBeforeModel) / (1024 * 1024)));
+                        logger.info(
+                                String.format(
+                                        "heap (inference) P90: %.3f MB",
+                                        (heap - heapBeforeInference) / (1024 * 1024)));
+                        logger.info(String.format("nonHeap P90: %.3f MB", nonHeap / (1024 * 1024)));
+                        logger.info(String.format("cpu P90: %.3f %%", cpu));
+                        logger.info(
+                                String.format(
+                                        "rss (base): %.3f MB", rssBeforeModel / (1024 * 1024)));
+                        logger.info(
+                                String.format(
+                                        "rss (model): %.3f MB",
+                                        (rssBeforeInference - rssBeforeModel) / (1024 * 1024)));
+                        logger.info(
+                                String.format(
+                                        "rss (inference) P90: %.3f MB",
+                                        (rss - rssBeforeInference) / (1024 * 1024)));
                     }
                 }
                 MemoryTrainingListener.dumpMemoryInfo(metrics, arguments.getOutputDir());
@@ -253,12 +285,12 @@ public abstract class AbstractBenchmark {
 
     @SuppressWarnings({"rawtypes", "unchecked"})
     protected ZooModel<?, ?> loadModel(Arguments arguments, Metrics metrics)
-            throws ModelException, IOException, ClassNotFoundException {
+            throws ModelException, IOException {
         long begin = System.nanoTime();
         String artifactId = arguments.getArtifactId();
         Class<?> input = arguments.getInputClass();
         Class<?> output = arguments.getOutputClass();
-        Shape shape = arguments.getInputShape();
+        Shape[] shapes = arguments.getInputShapes();
 
         Criteria.Builder<?, ?> builder =
                 Criteria.builder()
@@ -267,20 +299,27 @@ public abstract class AbstractBenchmark {
                         .optArtifactId(artifactId)
                         .optProgress(new ProgressBar());
 
-        if (shape != null) {
+        if (shapes != null) {
             builder.optTranslator(
                     new Translator() {
 
                         /** {@inheritDoc} */
                         @Override
                         public NDList processInput(TranslatorContext ctx, Object input) {
-                            return new NDList(ctx.getNDManager().ones(shape));
+                            NDList list = new NDList();
+                            for (Shape shape : shapes) {
+                                list.add(ctx.getNDManager().ones(shape));
+                            }
+                            return list;
                         }
 
                         /** {@inheritDoc} */
                         @Override
                         public Object processOutput(TranslatorContext ctx, NDList list) {
-                            return list.get(0).toFloatArray();
+                            FloatBuffer fb = list.get(0).toByteBuffer().asFloatBuffer();
+                            float[] ret = new float[fb.remaining()];
+                            fb.get(ret);
+                            return ret;
                         }
 
                         /** {@inheritDoc} */

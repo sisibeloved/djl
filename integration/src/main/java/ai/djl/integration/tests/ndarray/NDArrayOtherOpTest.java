@@ -21,6 +21,8 @@ import ai.djl.ndarray.NDManager;
 import ai.djl.ndarray.types.DataType;
 import ai.djl.ndarray.types.Shape;
 import ai.djl.testing.Assertions;
+import ai.djl.util.Hex;
+import java.nio.FloatBuffer;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
@@ -241,6 +243,35 @@ public class NDArrayOtherOpTest {
             expected = manager.create(new Shape(0, 0));
             Assert.assertEquals(array.booleanMask(index), expected);
             Assert.assertEquals(NDArrays.booleanMask(array, index), expected);
+        }
+    }
+
+    @Test
+    public void testSet() {
+        try (NDManager manager = NDManager.newBaseManager()) {
+            // test float
+            NDArray array = manager.create(1f);
+            float[] data = {-1};
+            array.set(FloatBuffer.wrap(data));
+            NDArray expected = manager.create(-1f);
+            Assert.assertEquals(array, expected);
+            array = manager.zeros(new Shape(2, 3));
+            data = new float[] {0, 1, 2, 3, 4, 5};
+            array.set(FloatBuffer.wrap(data));
+            expected = manager.arange(6f).reshape(2, 3);
+            Assert.assertEquals(array, expected);
+            array = manager.create(new float[] {1.2f, 3.4f, 2.7f, 8.9999f}, new Shape(2, 1, 1, 2));
+            data = new float[] {7.9f, 3.4f, 2.2f, 5.6f};
+            array.set(FloatBuffer.wrap(data));
+            expected = manager.create(data, new Shape(2, 1, 1, 2));
+            Assert.assertEquals(array, expected);
+
+            Assert.assertThrows(
+                    IllegalArgumentException.class,
+                    () -> {
+                        NDArray ndArray = manager.create(1f);
+                        ndArray.set(FloatBuffer.wrap(new float[] {-1, 1}));
+                    });
         }
     }
 
@@ -623,6 +654,28 @@ public class NDArrayOtherOpTest {
     }
 
     @Test
+    public void testRot90() {
+        try (NDManager manager = NDManager.newBaseManager()) {
+            NDArray original = manager.create(new float[] {1, 2, 3, 4}, new Shape(2, 2));
+            NDArray rotated = original.rotate90(1, new int[] {0, 1});
+            NDArray expected = manager.create(new float[] {2, 4, 1, 3}, new Shape(2, 2));
+            Assert.assertEquals(rotated, expected, "Incorrect rotation");
+            rotated = original.rotate90(2, new int[] {0, 1});
+            expected = manager.create(new float[] {4, 3, 2, 1}, new Shape(2, 2));
+            Assert.assertEquals(rotated, expected, "Incorrect rotation");
+            rotated = original.rotate90(2, new int[] {1, 0});
+            Assert.assertEquals(rotated, expected, "Incorrect rotation");
+
+            // fake image test CHW
+            original = manager.arange(0, 18).reshape(3, 2, 3);
+            rotated = original.rotate90(1, new int[] {1, 2});
+            NDArray expectedR =
+                    manager.create(new int[] {2, 5, 1, 4, 0, 3}).reshape(new Shape(3, 2));
+            Assert.assertEquals(rotated.get(0), expectedR, "Incorrect rotation Red channel");
+        }
+    }
+
+    @Test
     public void testBroadcast() {
         try (NDManager manager = NDManager.newBaseManager()) {
             NDArray array = manager.create(new float[] {1, 2});
@@ -727,10 +780,86 @@ public class NDArrayOtherOpTest {
     @Test
     public void testEncodeDecode() {
         try (NDManager manager = NDManager.newBaseManager()) {
-            NDArray array = manager.create(new long[] {0, 3, 4, 2}, new Shape(2, 2));
+            NDArray array = manager.create(new byte[] {0, 3}, new Shape(2));
             byte[] bytes = array.encode();
             NDArray recovered = NDArray.decode(manager, bytes);
             Assert.assertEquals(recovered, array);
+
+            array.setName("data");
+            bytes = array.encode();
+            recovered = NDArray.decode(manager, bytes);
+            Assert.assertEquals(recovered.getName(), "data");
+
+            // Legacy NDArray
+            String s =
+                    "00044e44415200000001000544454e53450004494e543800000001000000000000000200000001003f000000020003";
+            bytes = Hex.toByteArray(s);
+            recovered = NDArray.decode(manager, bytes);
+            Assert.assertEquals(recovered, array);
+        }
+    }
+
+    @Test
+    public void testErfinv() {
+        try (NDManager manager = NDManager.newBaseManager()) {
+            // test 1-D
+            NDArray array = manager.create(new float[] {0f, 0.5f, -1f});
+            NDArray expected = manager.create(new float[] {0f, 0.4769f, Float.NEGATIVE_INFINITY});
+            Assertions.assertAlmostEquals(array.erfinv(), expected);
+            // test 3-D
+            array = manager.linspace(-1.0f, 1.0f, 9).reshape(3, 1, 3);
+            expected =
+                    manager.create(
+                                    new float[] {
+                                        Float.NEGATIVE_INFINITY,
+                                        -0.8134f,
+                                        -0.4769f,
+                                        -0.2253f,
+                                        0f,
+                                        0.2253f,
+                                        0.4769f,
+                                        0.8134f,
+                                        Float.POSITIVE_INFINITY
+                                    })
+                            .reshape(3, 1, 3);
+            Assertions.assertAlmostEquals(array.erfinv(), expected);
+            // test scalar
+            array = manager.create(1f);
+            expected = manager.create(Float.POSITIVE_INFINITY);
+            Assertions.assertAlmostEquals(array.erfinv(), expected);
+            // test zero-dim
+            array = manager.create(new Shape(2, 0));
+            Assertions.assertAlmostEquals(array.erfinv(), array);
+        }
+    }
+
+    @Test
+    public void testNorm() {
+        try (NDManager manager = NDManager.newBaseManager()) {
+            // test 1-D
+            NDArray array = manager.create(new float[] {1f, 0.5f, -1f});
+            Assert.assertEquals(array.norm().getFloat(), 1.5f);
+            // test 2-D
+            array = manager.create(new float[][] {{1f, 0.5f}, {-1f, 2f}});
+            Assert.assertEquals(array.norm().getFloat(), 2.5f);
+            // test scalar
+            array = manager.create(new float[] {5f});
+            Assert.assertEquals(array.norm().getFloat(), 5f);
+            // test zero-dim
+            array = manager.create(new float[] {});
+            Assert.assertEquals(array.norm().getFloat(), 0f);
+            // test 2-D with axis
+            array = manager.create(new float[][] {{1f, 0.5f}, {-1f, 2f}});
+            NDArray expected = manager.create(new float[] {1.4142f, 2.0616f});
+            Assertions.assertAlmostEquals(array.norm(new int[] {0}), expected);
+            // test 2-D with keepDims
+            array = manager.create(new float[][] {{1f, 0.5f}, {-1f, 2f}});
+            expected = manager.create(new float[][] {{2.5f}});
+            Assertions.assertAlmostEquals(array.norm(true), expected);
+            // test 2-D with axis and keepDims
+            array = manager.create(new float[][] {{1f, 0.5f}, {-1f, 2f}});
+            expected = manager.create(new float[][] {{1.4142f, 2.0616f}});
+            Assertions.assertAlmostEquals(array.norm(new int[] {0}, true), expected);
         }
     }
 }

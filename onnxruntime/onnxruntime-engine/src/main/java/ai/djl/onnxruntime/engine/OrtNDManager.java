@@ -17,18 +17,15 @@ import ai.djl.engine.Engine;
 import ai.djl.engine.EngineException;
 import ai.djl.ndarray.BaseNDManager;
 import ai.djl.ndarray.NDArray;
-import ai.djl.ndarray.NDList;
 import ai.djl.ndarray.NDManager;
 import ai.djl.ndarray.types.DataType;
 import ai.djl.ndarray.types.Shape;
-import ai.djl.util.PairList;
 import ai.onnxruntime.OnnxTensor;
 import ai.onnxruntime.OrtEnvironment;
 import ai.onnxruntime.OrtException;
 import java.nio.Buffer;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
-import java.nio.file.Path;
 
 /** {@code OrtNDManager} is the ONNX Runtime implementation of {@link NDManager}. */
 public class OrtNDManager extends BaseNDManager {
@@ -68,92 +65,44 @@ public class OrtNDManager extends BaseNDManager {
 
     /** {@inheritDoc} */
     @Override
-    public NDArray create(Shape shape, DataType dataType) {
-        throw new UnsupportedOperationException("Not supported for ONNX Runtime");
-    }
-
-    /** {@inheritDoc} */
-    @Override
-    public NDArray createCSR(Buffer data, long[] indptr, long[] indices, Shape shape) {
-        throw new UnsupportedOperationException("Not supported for ONNX Runtime");
-    }
-
-    /** {@inheritDoc} */
-    @Override
-    public NDArray createRowSparse(Buffer data, Shape dataShape, long[] indices, Shape shape) {
-        throw new UnsupportedOperationException("Not supported for ONNX Runtime");
-    }
-
-    /** {@inheritDoc} */
-    @Override
-    public NDList load(Path path) {
-        throw new UnsupportedOperationException("Not supported for ONNX Runtime");
-    }
-
-    /** {@inheritDoc} */
-    @Override
     public NDArray zeros(Shape shape, DataType dataType) {
-        throw new UnsupportedOperationException("Not supported for ONNX Runtime");
+        int bytes = dataType.getNumOfBytes();
+        int size = Math.toIntExact(bytes * shape.size());
+        ByteBuffer buffer = allocateDirect(size);
+        return create(dataType.asDataType(buffer), shape, dataType);
     }
 
     /** {@inheritDoc} */
     @Override
     public NDArray ones(Shape shape, DataType dataType) {
-        throw new UnsupportedOperationException("Not supported for ONNX Runtime");
-    }
-
-    /** {@inheritDoc} */
-    @Override
-    public NDArray full(Shape shape, float value, DataType dataType) {
-        throw new UnsupportedOperationException("Not supported for ONNX Runtime");
-    }
-
-    /** {@inheritDoc} */
-    @Override
-    public NDArray arange(float start, float stop, float step, DataType dataType) {
-        throw new UnsupportedOperationException("Not supported for ONNX Runtime");
-    }
-
-    /** {@inheritDoc} */
-    @Override
-    public NDArray eye(int rows, int cols, int k, DataType dataType) {
-        throw new UnsupportedOperationException("Not supported for ONNX Runtime");
-    }
-
-    /** {@inheritDoc} */
-    @Override
-    public NDArray linspace(float start, float stop, int num, boolean endpoint) {
-        throw new UnsupportedOperationException("Not supported for ONNX Runtime");
-    }
-
-    /** {@inheritDoc} */
-    @Override
-    public NDArray randomUniform(float low, float high, Shape shape, DataType dataType) {
-        throw new UnsupportedOperationException("Not supported for ONNX Runtime");
-    }
-
-    /** {@inheritDoc} */
-    @Override
-    public NDArray randomNormal(float loc, float scale, Shape shape, DataType dataType) {
-        throw new UnsupportedOperationException("Not supported for ONNX Runtime");
-    }
-
-    /** {@inheritDoc} */
-    @Override
-    public NDArray randomMultinomial(int n, NDArray pValues) {
-        throw new UnsupportedOperationException("Not supported for ONNX Runtime");
-    }
-
-    /** {@inheritDoc} */
-    @Override
-    public NDArray randomMultinomial(int n, NDArray pValues, Shape shape) {
-        throw new UnsupportedOperationException("Not supported for ONNX Runtime");
-    }
-
-    /** {@inheritDoc} */
-    @Override
-    public OrtNDManager newSubManager() {
-        return newSubManager(device);
+        long size = shape.size();
+        int bytes = Math.toIntExact(dataType.getNumOfBytes() * size);
+        ByteBuffer buffer = allocateDirect(bytes);
+        for (int i = 0; i < size; ++i) {
+            switch (dataType) {
+                case BOOLEAN:
+                case INT8:
+                case UINT8:
+                    buffer.put((byte) 1);
+                    break;
+                case FLOAT32:
+                    buffer.putFloat(1f);
+                    break;
+                case FLOAT64:
+                    buffer.putDouble(1);
+                    break;
+                case INT32:
+                    buffer.putInt(1);
+                    break;
+                case INT64:
+                    buffer.putLong(1);
+                    break;
+                default:
+                    throw new UnsupportedOperationException("Unsupported dataType: " + dataType);
+            }
+        }
+        buffer.rewind();
+        return create(dataType.asDataType(buffer), shape, dataType);
     }
 
     /** {@inheritDoc} */
@@ -166,18 +115,7 @@ public class OrtNDManager extends BaseNDManager {
 
     /** {@inheritDoc} */
     @Override
-    public void invoke(
-            String operation, NDArray[] src, NDArray[] dest, PairList<String, ?> params) {}
-
-    /** {@inheritDoc} */
-    @Override
-    public NDList invoke(String operation, NDList src, PairList<String, ?> params) {
-        throw new UnsupportedOperationException("Not supported for ONNX Runtime");
-    }
-
-    /** {@inheritDoc} */
-    @Override
-    public Engine getEngine() {
+    public final Engine getEngine() {
         return Engine.getEngine(OrtEngine.ENGINE_NAME);
     }
 

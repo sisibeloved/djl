@@ -107,17 +107,17 @@ public class BatchNorm extends AbstractBlock {
 
     /** {@inheritDoc} */
     @Override
-    public NDList forward(
+    protected NDList forwardInternal(
             ParameterStore parameterStore,
             NDList inputs,
             boolean training,
             PairList<String, Object> params) {
         NDArray input = inputs.singletonOrThrow();
         Device device = input.getDevice();
-        NDArray gammaArr = parameterStore.getValue(gamma, device);
-        NDArray betaArr = parameterStore.getValue(beta, device);
-        NDArray runningMeanArr = parameterStore.getValue(runningMean, device);
-        NDArray runningVarArr = parameterStore.getValue(runningVar, device);
+        NDArray gammaArr = parameterStore.getValue(gamma, device, training);
+        NDArray betaArr = parameterStore.getValue(beta, device, training);
+        NDArray runningMeanArr = parameterStore.getValue(runningMean, device, training);
+        NDArray runningVarArr = parameterStore.getValue(runningVar, device, training);
         return batchNorm(
                 input,
                 runningMeanArr,
@@ -139,7 +139,7 @@ public class BatchNorm extends AbstractBlock {
     /** {@inheritDoc} */
     @Override
     public void beforeInitialize(Shape[] inputShapes) {
-        this.inputShapes = inputShapes;
+        super.beforeInitialize(inputShapes);
         inChannels = inputShapes[0].size(axis);
     }
 

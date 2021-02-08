@@ -28,6 +28,7 @@ public class TextTruncator implements TextProcessor {
         this.maxSize = maxSize;
     }
 
+    /** {@inheritDoc} */
     @Override
     public List<String> preprocess(List<String> tokens) {
         if (tokens.size() <= maxSize) {

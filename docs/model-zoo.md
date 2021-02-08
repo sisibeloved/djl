@@ -1,4 +1,4 @@
-# DJL - Model Zoo
+# Model Zoo
 
 Deep Java Library's (DJL) Model Zoo is more than a collection of pre-trained models. It's a bridge between a model vendor and a consumer. It provides a framework for developers to create and publish their own models. 
 
@@ -16,7 +16,7 @@ We provide engine agnostic `ZooModel`s in basic model zoo package. They can be u
 
 ## [MXNet symbolic model zoo](../mxnet/mxnet-model-zoo/README.md)
 
-MXNet has a large number of existing pre-trained models. We created an MXNet model zoo to make it easy for users to consume them.
+Apache MXNet has a large number of existing pre-trained models. We created an Apache MXNet model zoo to make it easy for users to consume them.
 
 ## [PyTorch model zoo](../pytorch/pytorch-model-zoo/README.md)
 

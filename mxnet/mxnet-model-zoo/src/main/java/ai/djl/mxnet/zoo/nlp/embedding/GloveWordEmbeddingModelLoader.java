@@ -36,7 +36,6 @@ import ai.djl.translate.Translator;
 import ai.djl.translate.TranslatorContext;
 import ai.djl.translate.TranslatorFactory;
 import ai.djl.util.Pair;
-import ai.djl.util.Progress;
 import ai.djl.util.Utils;
 import java.io.IOException;
 import java.util.List;
@@ -46,12 +45,12 @@ import java.util.Map;
  * A {@link ai.djl.repository.zoo.ModelLoader} for a {@link WordEmbedding} based on <a
  * href="https://nlp.stanford.edu/projects/glove/">GloVe</a>.
  */
-public class GloveWordEmbeddingModelLoader extends BaseModelLoader<NDList, NDList> {
+public class GloveWordEmbeddingModelLoader extends BaseModelLoader {
 
     private static final Application APPLICATION = NLP.WORD_EMBEDDING;
     private static final String GROUP_ID = MxModelZoo.GROUP_ID;
     private static final String ARTIFACT_ID = "glove";
-    private static final String VERSION = "0.0.1";
+    private static final String VERSION = "0.0.2";
 
     /**
      * Constructs a {@link GloveWordEmbeddingModelLoader} given the repository.
@@ -61,12 +60,6 @@ public class GloveWordEmbeddingModelLoader extends BaseModelLoader<NDList, NDLis
     public GloveWordEmbeddingModelLoader(Repository repository) {
         super(repository, MRL.model(APPLICATION, GROUP_ID, ARTIFACT_ID), VERSION, new MxModelZoo());
         factories.put(new Pair<>(String.class, NDList.class), new FactoryImpl());
-    }
-
-    /** {@inheritDoc} */
-    @Override
-    public Application getApplication() {
-        return APPLICATION;
     }
 
     private Model customGloveBlock(Model model, Artifact artifact, Map<String, Object> arguments)
@@ -102,18 +95,20 @@ public class GloveWordEmbeddingModelLoader extends BaseModelLoader<NDList, NDLis
         return customGloveBlock(model, artifact, arguments);
     }
 
-    /** {@inheritDoc} */
-    @Override
-    public ZooModel<NDList, NDList> loadModel(
-            Map<String, String> filters, Device device, Progress progress)
+    /**
+     * Loads the model with the given search filters.
+     *
+     * @return the loaded model
+     * @throws IOException for various exceptions loading data from the repository
+     * @throws ModelNotFoundException if no model with the specified criteria is found
+     * @throws MalformedModelException if the model data is malformed
+     */
+    public ZooModel<NDList, NDList> loadModel()
             throws IOException, ModelNotFoundException, MalformedModelException {
         Criteria<NDList, NDList> criteria =
                 Criteria.builder()
                         .setTypes(NDList.class, NDList.class)
                         .optApplication(NLP.WORD_EMBEDDING)
-                        .optFilters(filters)
-                        .optDevice(device)
-                        .optProgress(progress)
                         .build();
         return loadModel(criteria);
     }
@@ -122,7 +117,7 @@ public class GloveWordEmbeddingModelLoader extends BaseModelLoader<NDList, NDLis
 
         /** {@inheritDoc} */
         @Override
-        public Translator<String, NDList> newInstance(Map<String, Object> arguments) {
+        public Translator<String, NDList> newInstance(Model model, Map<String, ?> arguments) {
             String unknownToken = (String) arguments.get("unknownToken");
             return new TranslatorImpl(unknownToken);
         }

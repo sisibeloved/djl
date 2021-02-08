@@ -13,37 +13,46 @@ if(NOT BUILD_ANDROID)
     find_package(Torch REQUIRED)
     find_package(JNI REQUIRED)
 
-    include_directories(${JNI_INCLUDE_DIRS})
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${TORCH_CXX_FLAGS}")
 else()
     message("Building djl_torch with ${ANDROID_ABI}...")
     # The dependency of the cpuinfo clong.c
     find_library(log-lib log)
+    # It is required to set those when using library elsewhere than Android SDK dir during the cross-compiling
+    set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY BOTH)
+    set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE BOTH)
+    set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE BOTH)
 endif()
 
+# find utils header
+find_path(UTILS_INCLUDE_DIR NAMES djl/utils.h PATHS ${PROJECT_SOURCE_DIR}/../../api/src/main/native REQUIRED)
+
 set(SOURCE_FILES
-    "src/djl_pytorch_jni_utils.h"
-    "src/ai_djl_pytorch_jni_PyTorchLibrary_system.cc"
-    "src/ai_djl_pytorch_jni_PyTorchLibrary_nn_functional.cc"
-    "src/ai_djl_pytorch_jni_PyTorchLibrary_inference.cc"
-    "src/ai_djl_pytorch_jni_PyTorchLibrary_optim.cc"
-    "src/ai_djl_pytorch_jni_PyTorchLibrary_torch_comparison.cc"
-    "src/ai_djl_pytorch_jni_PyTorchLibrary_tensor.cc"
-    "src/ai_djl_pytorch_jni_PyTorchLibrary_torch_creation.cc"
-    "src/ai_djl_pytorch_jni_PyTorchLibrary_torch_isjm.cc"
-    "src/ai_djl_pytorch_jni_PyTorchLibrary_torch_pointwise.cc"
-    "src/ai_djl_pytorch_jni_PyTorchLibrary_torch_reduction.cc"
-    "src/ai_djl_pytorch_jni_PyTorchLibrary_torch_random_sampling.cc"
-    "src/ai_djl_pytorch_jni_PyTorchLibrary_torch_other.cc"
-    "src/djl_pytorch_jni_log.cc"
-    "src/djl_pytorch_jni_log.h"
-    "src/djl_pytorch_jni_error.h")
+    "src/main/native/djl_pytorch_utils.h"
+    "src/main/native/ai_djl_pytorch_jni_PyTorchLibrary_system.cc"
+    "src/main/native/ai_djl_pytorch_jni_PyTorchLibrary_nn_functional.cc"
+    "src/main/native/ai_djl_pytorch_jni_PyTorchLibrary_inference.cc"
+    "src/main/native/ai_djl_pytorch_jni_PyTorchLibrary_ivalue.cc"
+    "src/main/native/ai_djl_pytorch_jni_PyTorchLibrary_optim.cc"
+    "src/main/native/ai_djl_pytorch_jni_PyTorchLibrary_torch_comparison.cc"
+    "src/main/native/ai_djl_pytorch_jni_PyTorchLibrary_tensor.cc"
+    "src/main/native/ai_djl_pytorch_jni_PyTorchLibrary_torch_creation.cc"
+    "src/main/native/ai_djl_pytorch_jni_PyTorchLibrary_torch_isjm.cc"
+    "src/main/native/ai_djl_pytorch_jni_PyTorchLibrary_torch_pointwise.cc"
+    "src/main/native/ai_djl_pytorch_jni_PyTorchLibrary_torch_reduction.cc"
+    "src/main/native/ai_djl_pytorch_jni_PyTorchLibrary_torch_random_sampling.cc"
+    "src/main/native/ai_djl_pytorch_jni_PyTorchLibrary_torch_other.cc"
+    "src/main/native/djl_pytorch_jni_log.cc"
+    "src/main/native/djl_pytorch_jni_log.h"
+    "src/main/native/djl_pytorch_jni_exception.h"
+    "src/main/native/ai_djl_pytorch_jni_cache.h"
+    "src/main/native/ai_djl_pytorch_jni_cache.cc")
 
 add_library(djl_torch SHARED ${SOURCE_FILES})
 # build host
 if(NOT BUILD_ANDROID)
     target_link_libraries(djl_torch "${TORCH_LIBRARIES}")
-    target_include_directories(djl_torch PUBLIC build/include)
+    target_include_directories(djl_torch PUBLIC build/include ${JNI_INCLUDE_DIRS} ${UTILS_INCLUDE_DIR})
     set_property(TARGET djl_torch PROPERTY CXX_STANDARD 14)
     # We have to kill the default rpath and use current dir
     set(CMAKE_SKIP_RPATH TRUE)
@@ -72,24 +81,26 @@ else()
             PROPERTY IMPORTED_LOCATION
             ${CMAKE_CURRENT_SOURCE_DIR}/libtorch_android/${ANDROID_ABI}/lib/${name}.a)
     endfunction(import_static_lib)
-    list(APPEND LIBS libtorch libtorch_cpu libc10 libnnpack libXNNPACK libpytorch_qnnpack libeigen_blas libcpuinfo libclog)
+    list(APPEND LIBS libtorch libtorch_cpu libc10 libnnpack libXNNPACK libpytorch_qnnpack libpthreadpool libeigen_blas libcpuinfo libclog)
     foreach(lib IN LISTS LIBS)
         import_static_lib(${lib})
     endforeach()
 
-    target_include_directories(djl_torch PUBLIC build/include libtorch_android/${ANDROID_ABI}/include libtorch_android/${ANDROID_ABI}/include/torch/csrc/api/include)
+    target_include_directories(djl_torch PUBLIC build/include libtorch_android/${ANDROID_ABI}/include libtorch_android/${ANDROID_ABI}/include/torch/csrc/api/include ${UTILS_INCLUDE_DIR})
     target_link_libraries(djl_torch
-        libtorch
+        -Wl,--gc-sections
         -Wl,--whole-archive
+        libtorch
         libtorch_cpu
         -Wl,--no-whole-archive
         libc10
         libnnpack
         libXNNPACK
         libpytorch_qnnpack
+        libpthreadpool
         libeigen_blas
         libcpuinfo
         libclog
         ${log-lib}
-        )
+    )
 endif()

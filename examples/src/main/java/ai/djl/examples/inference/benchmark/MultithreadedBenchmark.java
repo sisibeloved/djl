@@ -19,7 +19,6 @@ import ai.djl.inference.Predictor;
 import ai.djl.metric.Metrics;
 import ai.djl.repository.zoo.ZooModel;
 import ai.djl.training.listener.MemoryTrainingListener;
-import ai.djl.translate.TranslateException;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
@@ -46,40 +45,63 @@ public class MultithreadedBenchmark extends AbstractBenchmark {
     /** {@inheritDoc} */
     @Override
     public Object predict(Arguments arguments, Metrics metrics, int iteration)
-            throws IOException, ModelException, ClassNotFoundException {
+            throws IOException, ModelException {
+
+        MemoryTrainingListener.collectMemoryInfo(metrics); // Measure memory before loading model
+
         Object inputData = arguments.getInputData();
         ZooModel<?, ?> model = loadModel(arguments, metrics);
 
         int numOfThreads = arguments.getThreads();
-        AtomicInteger counter = new AtomicInteger(iteration);
+        int delay = arguments.getDelay();
+        AtomicInteger counter = new AtomicInteger(iteration + 1);
         logger.info("Multithreaded inference with {} threads.", numOfThreads);
 
-        List<PredictorCallable> callables = new ArrayList<>(numOfThreads);
-        for (int i = 0; i < numOfThreads; ++i) {
+        List<PredictorCallable> callables = new ArrayList<>(numOfThreads + 1);
+        for (int i = 0; i < numOfThreads + 1; ++i) {
             callables.add(new PredictorCallable(model, inputData, metrics, counter, i, i == 0));
         }
 
         Object classification = null;
-        ExecutorService executorService = Executors.newFixedThreadPool(numOfThreads);
+        ExecutorService executorService = Executors.newFixedThreadPool(numOfThreads + 1);
+
+        MemoryTrainingListener.collectMemoryInfo(metrics); // Measure memory before worker kickoff
+
         int successThreads = 0;
         try {
             metrics.addMetric("mt_start", System.currentTimeMillis(), "mills");
-            List<Future<Object>> futures = executorService.invokeAll(callables);
-            for (Future<Object> future : futures) {
-                try {
-                    classification = future.get();
-                    ++successThreads;
-                } catch (InterruptedException | ExecutionException e) {
-                    logger.error("", e);
+            try {
+                List<Future<Object>> futures;
+                if (delay > 0) {
+                    futures = new ArrayList<>();
+                    for (PredictorCallable callable : callables) {
+                        futures.add(executorService.submit(callable));
+                        Thread.sleep(delay);
+                    }
+                } else {
+                    futures = executorService.invokeAll(callables);
                 }
+
+                for (Future<Object> future : futures) {
+                    classification = future.get();
+                    if (classification != null) {
+                        ++successThreads;
+                    }
+                }
+            } catch (InterruptedException | ExecutionException e) {
+                logger.error("", e);
             }
-        } catch (InterruptedException e) {
-            logger.error("", e);
+            for (PredictorCallable callable : callables) {
+                callable.close();
+            }
         } finally {
             executorService.shutdown();
         }
-        if (successThreads != numOfThreads) {
-            logger.error("Only {}/{} threads finished.", successThreads, numOfThreads);
+
+        model.close();
+        if (successThreads != numOfThreads + 1) {
+            logger.error("Only {}/{} threads finished.", successThreads - 1, numOfThreads);
+            return null;
         }
 
         return classification;
@@ -116,30 +138,44 @@ public class MultithreadedBenchmark extends AbstractBenchmark {
             if (total < 10) {
                 steps = 1;
             } else {
-                steps = (int) Math.pow(10, (int) (Math.log10(total)) - 1);
+                steps = (int) Math.pow(10, (int) Math.log10(total));
             }
         }
 
         /** {@inheritDoc} */
         @Override
         @SuppressWarnings("unchecked")
-        public Object call() throws TranslateException {
+        public Object call() throws Exception {
             Object result = null;
             int count = 0;
             int remaining;
-            while ((remaining = counter.decrementAndGet()) > 0) {
-                result = predictor.predict(inputData);
-                if (collectMemory) {
+            if (collectMemory) {
+                result = "MemoryCollector";
+                while (counter.get() > 0) {
                     MemoryTrainingListener.collectMemoryInfo(metrics);
                 }
-                int processed = total - remaining;
-                logger.trace("Worker-{}: {} iteration finished.", workerId, ++count);
-                if (processed % steps == 0) {
-                    logger.info("Completed {} requests", processed);
+            } else {
+                while ((remaining = counter.decrementAndGet()) > 0 || result == null) {
+                    try {
+                        result = predictor.predict(inputData);
+                    } catch (Exception e) {
+                        // stop immediately when we find any exception
+                        counter.set(0);
+                        throw e;
+                    }
+                    int processed = total - remaining + 1;
+                    logger.trace("Worker-{}: {} iteration finished.", workerId, ++count);
+                    if (processed % steps == 0 || processed == total) {
+                        logger.info("Completed {} requests", processed);
+                    }
                 }
             }
             logger.debug("Worker-{}: finished.", workerId);
             return result;
+        }
+
+        public void close() {
+            predictor.close();
         }
     }
 }

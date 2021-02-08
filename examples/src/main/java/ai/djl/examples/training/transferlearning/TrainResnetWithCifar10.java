@@ -17,7 +17,7 @@ import ai.djl.Device;
 import ai.djl.MalformedModelException;
 import ai.djl.Model;
 import ai.djl.ModelException;
-import ai.djl.basicdataset.Cifar10;
+import ai.djl.basicdataset.cv.classification.Cifar10;
 import ai.djl.basicmodelzoo.BasicModelZoo;
 import ai.djl.basicmodelzoo.cv.classification.ResNetV1;
 import ai.djl.examples.training.util.Arguments;
@@ -52,11 +52,9 @@ import ai.djl.training.util.ProgressBar;
 import ai.djl.translate.Pipeline;
 import ai.djl.translate.TranslateException;
 import java.io.IOException;
-import java.net.URL;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Map;
-import org.apache.commons.cli.ParseException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -73,14 +71,16 @@ public final class TrainResnetWithCifar10 {
 
     private TrainResnetWithCifar10() {}
 
-    public static void main(String[] args)
-            throws ParseException, ModelException, IOException, TranslateException {
+    public static void main(String[] args) throws ModelException, IOException, TranslateException {
         TrainResnetWithCifar10.runExample(args);
     }
 
     public static TrainingResult runExample(String[] args)
-            throws IOException, ParseException, ModelException, TranslateException {
+            throws IOException, ModelException, TranslateException {
         Arguments arguments = Arguments.parseArgs(args);
+        if (arguments == null) {
+            return null;
+        }
 
         try (Model model = getModel(arguments)) {
             // get training dataset
@@ -183,9 +183,8 @@ public final class TrainResnetWithCifar10 {
 
     private static Classifications testSaveParameters(Block block, Path path)
             throws IOException, ModelException, TranslateException {
-        URL synsetUrl =
-                new URL(
-                        "https://mlrepo.djl.ai/model/cv/image_classification/ai/djl/mxnet/synset_cifar10.txt");
+        String synsetUrl =
+                "https://mlrepo.djl.ai/model/cv/image_classification/ai/djl/mxnet/synset_cifar10.txt";
         ImageClassificationTranslator translator =
                 ImageClassificationTranslator.builder()
                         .addTransform(new ToTensor())
@@ -219,7 +218,7 @@ public final class TrainResnetWithCifar10 {
     }
 
     private static RandomAccessDataset getDataset(Dataset.Usage usage, Arguments arguments)
-            throws IOException, TranslateException {
+            throws IOException {
         Pipeline pipeline =
                 new Pipeline(
                         new ToTensor(),

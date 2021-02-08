@@ -14,14 +14,12 @@ package ai.djl.mxnet.jna;
 
 import ai.djl.util.Platform;
 import ai.djl.util.Utils;
+import com.sun.jna.Library;
 import com.sun.jna.Native;
-import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.InputStreamReader;
 import java.net.URL;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -30,6 +28,8 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.Enumeration;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.zip.GZIPInputStream;
@@ -55,16 +55,22 @@ public final class LibUtils {
     private static final Logger logger = LoggerFactory.getLogger(LibUtils.class);
 
     private static final String LIB_NAME = "mxnet";
-    private static final Pattern PATH_PATTERN = Pattern.compile("\\s*'(.+)',");
 
     private static final Pattern VERSION_PATTERN =
-            Pattern.compile("(\\d+\\.\\d+\\.\\d+(-\\w)?)(-SNAPSHOT)?(-\\d+)?");
+            Pattern.compile("(\\d+\\.\\d+\\.\\d+(-[a-z]+)?)(-SNAPSHOT)?(-\\d+)?");
 
     private LibUtils() {}
 
     public static MxnetLibrary loadLibrary() {
         String libName = getLibName();
         logger.debug("Loading mxnet library from: {}", libName);
+
+        if (System.getProperty("os.name").startsWith("Linux")) {
+            Map<String, Integer> options = new ConcurrentHashMap<>();
+            int rtld = 1; // Linux RTLD lazy + local
+            options.put(Library.OPTION_OPEN_FLAGS, rtld);
+            return Native.load(libName, MxnetLibrary.class, options);
+        }
 
         return Native.load(libName, MxnetLibrary.class);
     }
@@ -74,13 +80,7 @@ public final class LibUtils {
         if (libName == null) {
             libName = LibUtils.findLibraryInClasspath();
             if (libName == null) {
-                libName = searchPythonPath("python3 -m site");
-                if (libName == null) {
-                    libName = searchPythonPath("python -m site");
-                    if (libName == null) {
-                        libName = LIB_NAME;
-                    }
-                }
+                libName = LIB_NAME;
             }
         }
         return libName;
@@ -216,44 +216,6 @@ public final class LibUtils {
         return null;
     }
 
-    private static String searchPythonPath(String cmd) {
-        String libName;
-        if (com.sun.jna.Platform.isMac()) {
-            // pip package use libmxnet.so instead of libmxnet.dylib, JNA by default only
-            // load .dylib file, we have to use absolute path to load libmxnet.so
-            libName = "libmxnet.so";
-        } else {
-            libName = System.mapLibraryName(LIB_NAME);
-        }
-
-        try {
-            Process process = Runtime.getRuntime().exec(cmd);
-            try (BufferedReader reader =
-                    new BufferedReader(
-                            new InputStreamReader(
-                                    process.getInputStream(), StandardCharsets.UTF_8))) {
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    Matcher m = PATH_PATTERN.matcher(line);
-                    if (m.matches()) {
-                        File dir = new File(m.group(1));
-                        if (dir.isDirectory()) {
-                            File file = new File(dir, "mxnet/" + libName);
-                            if (file.exists()) {
-                                return file.getAbsolutePath();
-                            }
-                        }
-                    }
-                }
-            }
-        } catch (IOException e) {
-            if (logger.isTraceEnabled()) {
-                logger.trace("Failed execute cmd: " + cmd, e);
-            }
-        }
-        return null;
-    }
-
     private static String downloadMxnet(Platform platform) throws IOException {
         String version = platform.getVersion();
         String flavor = platform.getFlavor();
@@ -269,20 +231,21 @@ public final class LibUtils {
         String libName = System.mapLibraryName(LIB_NAME);
         Path cacheFolder = getCacheDir();
         logger.debug("Using cache dir: {}", cacheFolder);
-        Path dir = cacheFolder.resolve(version + flavor + '-' + classifier);
+        Path dir = cacheFolder.resolve(version + '-' + flavor + '-' + classifier);
         Path path = dir.resolve(libName);
         if (Files.exists(path)) {
             return path.toAbsolutePath().toString();
         }
 
         Files.createDirectories(cacheFolder);
-        Path tmp = Files.createTempDirectory(cacheFolder, "tmp");
 
         Matcher matcher = VERSION_PATTERN.matcher(version);
         if (!matcher.matches()) {
             throw new IllegalArgumentException("Unexpected version: " + version);
         }
-        String link = "https://djl-ai.s3.amazonaws.com/publish/mxnet-" + matcher.group(1);
+
+        Path tmp = Files.createTempDirectory(cacheFolder, "tmp");
+        String link = "https://publish.djl.ai/mxnet-" + matcher.group(1);
         try (InputStream is = new URL(link + "/files.txt").openStream()) {
             List<String> lines = Utils.readLines(is);
             if (cudaArch != null) {
@@ -313,7 +276,7 @@ public final class LibUtils {
 
                 // check again in case fallback to cpu
                 if ("mkl".equals(flavor)) {
-                    dir = cacheFolder.resolve(version + flavor + '-' + classifier);
+                    dir = cacheFolder.resolve(version + '-' + flavor + '-' + classifier);
                     path = dir.resolve(libName);
                     if (Files.exists(path)) {
                         return path.toAbsolutePath().toString();
@@ -345,9 +308,7 @@ public final class LibUtils {
             Utils.moveQuietly(tmp, dir);
             return path.toAbsolutePath().toString();
         } finally {
-            if (tmp != null) {
-                Utils.deleteQuietly(tmp);
-            }
+            Utils.deleteQuietly(tmp);
         }
     }
 
@@ -361,12 +322,11 @@ public final class LibUtils {
                     cacheDir = System.getenv("DJL_CACHE_DIR");
                     if (cacheDir == null || cacheDir.isEmpty()) {
                         String userHome = System.getProperty("user.home");
-                        return Paths.get(userHome, ".mxnet/cache");
+                        return Paths.get(userHome, ".djl.ai").resolve("mxnet");
                     }
                 }
-                return Paths.get(cacheDir, "mxnet");
             }
         }
-        return Paths.get(cacheDir, ".mxnet/cache");
+        return Paths.get(cacheDir, "mxnet");
     }
 }

@@ -12,6 +12,7 @@
  */
 package ai.djl.training.tracker;
 
+import ai.djl.training.tracker.WarmUpTracker.Builder;
 import ai.djl.util.Preconditions;
 
 /**
@@ -35,6 +36,15 @@ public class LinearTracker implements Tracker {
         this.maxUpdates = builder.maxUpdates;
     }
 
+    /**
+     * Creates a new builder.
+     *
+     * @return a new builder
+     */
+    public static Builder builder() {
+        return new Builder();
+    }
+
     /** {@inheritDoc} */
     @Override
     public float getNewValue(int numUpdate) {
@@ -52,6 +62,8 @@ public class LinearTracker implements Tracker {
         Float min;
         Float max;
         Integer maxUpdates;
+
+        private Builder() {}
 
         /**
          * Sets the initial value after no steps.
@@ -140,7 +152,7 @@ public class LinearTracker implements Tracker {
                         slope < 0, "The slope must be negative for a min value");
                 Preconditions.checkArgument(
                         min < baseValue, "The min must be smaller than the base value");
-                maxUpdates = Math.round((baseValue - min) / slope);
+                maxUpdates = -Math.round((baseValue - min) / slope);
             } else if (maxUpdates == null) {
                 // Default to no max if none set
                 maxUpdates = Integer.MAX_VALUE;

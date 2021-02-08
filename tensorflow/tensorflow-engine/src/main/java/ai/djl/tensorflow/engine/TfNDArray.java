@@ -32,8 +32,11 @@ import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
+import java.util.stream.LongStream;
 import org.tensorflow.Operand;
 import org.tensorflow.Tensor;
+import org.tensorflow.ndarray.buffer.ByteDataBuffer;
+import org.tensorflow.ndarray.buffer.DataBuffers;
 import org.tensorflow.op.Ops;
 import org.tensorflow.op.core.Constant;
 import org.tensorflow.op.core.Max;
@@ -41,10 +44,9 @@ import org.tensorflow.op.core.Min;
 import org.tensorflow.op.core.Prod;
 import org.tensorflow.op.core.Squeeze;
 import org.tensorflow.op.core.Sum;
+import org.tensorflow.op.linalg.EuclideanNorm;
 import org.tensorflow.op.math.Mean;
 import org.tensorflow.op.nn.TopK;
-import org.tensorflow.tools.buffer.ByteDataBuffer;
-import org.tensorflow.tools.buffer.DataBuffers;
 import org.tensorflow.types.TBool;
 import org.tensorflow.types.TInt64;
 import org.tensorflow.types.family.TType;
@@ -62,7 +64,7 @@ public class TfNDArray implements NDArray {
     private TfNDManager manager;
     private Ops tf;
     private Operand<?> operand;
-    private String name;
+    private String name = "";
     private TfNDArrayEx tfNDArrayEx;
     private DataType dataType;
 
@@ -180,7 +182,17 @@ public class TfNDArray implements NDArray {
 
     /** {@inheritDoc} */
     @Override
+    public NDArray stopGradient() {
+        throw new UnsupportedOperationException("Not implemented");
+    }
+
+    /** {@inheritDoc} */
+    @Override
     public double[] toDoubleArray() {
+        if (getDataType() != DataType.FLOAT64) {
+            throw new IllegalStateException(
+                    "DataType mismatch, Required double" + " Actual " + getDataType());
+        }
         double[] result = new double[(int) getShape().size()];
         try (Tensor<?> tensor = operand.asTensor()) {
             tensor.rawData().asDoubles().read(result);
@@ -191,6 +203,10 @@ public class TfNDArray implements NDArray {
     /** {@inheritDoc} */
     @Override
     public float[] toFloatArray() {
+        if (getDataType() != DataType.FLOAT32) {
+            throw new IllegalStateException(
+                    "DataType mismatch, Required float, Actual " + getDataType());
+        }
         float[] result = new float[(int) getShape().size()];
         try (Tensor<?> tensor = operand.asTensor()) {
             tensor.rawData().asFloats().read(result);
@@ -201,6 +217,10 @@ public class TfNDArray implements NDArray {
     /** {@inheritDoc} */
     @Override
     public int[] toIntArray() {
+        if (getDataType() != DataType.INT32) {
+            throw new IllegalStateException(
+                    "DataType mismatch, Required int" + " Actual " + getDataType());
+        }
         int[] result = new int[(int) getShape().size()];
         try (Tensor<?> tensor = operand.asTensor()) {
             tensor.rawData().asInts().read(result);
@@ -211,6 +231,10 @@ public class TfNDArray implements NDArray {
     /** {@inheritDoc} */
     @Override
     public long[] toLongArray() {
+        if (getDataType() != DataType.INT64) {
+            throw new IllegalStateException(
+                    "DataType mismatch, Required long" + " Actual " + getDataType());
+        }
         long[] result = new long[(int) getShape().size()];
         try (Tensor<?> tensor = operand.asTensor()) {
             tensor.rawData().asLongs().read(result);
@@ -221,6 +245,10 @@ public class TfNDArray implements NDArray {
     /** {@inheritDoc} */
     @Override
     public boolean[] toBooleanArray() {
+        if (getDataType() != DataType.BOOLEAN) {
+            throw new IllegalStateException(
+                    "DataType mismatch, Required boolean" + " Actual " + getDataType());
+        }
         boolean[] result = new boolean[(int) getShape().size()];
         try (Tensor<?> tensor = operand.asTensor()) {
             tensor.rawData().asBooleans().read(result);
@@ -250,10 +278,12 @@ public class TfNDArray implements NDArray {
 
     /** {@inheritDoc} */
     @Override
-    public void attach(NDManager manager) {
+    public NDManager attach(NDManager manager) {
         detach();
+        NDManager original = this.manager;
         this.manager = (TfNDManager) manager;
         manager.attach(uid, this);
+        return original;
     }
 
     /** {@inheritDoc} */
@@ -488,6 +518,53 @@ public class TfNDArray implements NDArray {
                                         tf.constant(0L),
                                         tf.constant((long) getRank()),
                                         tf.constant(1L)))
+                        .asTensor()) {
+            return new TfNDArray(manager, tensor);
+        }
+    }
+
+    /** {@inheritDoc} */
+    @Override
+    public NDArray erfinv() {
+        try (Tensor<?> tensor = tf.math.erfinv(getOperand()).asTensor()) {
+            return new TfNDArray(manager, tensor);
+        }
+    }
+
+    /** {@inheritDoc} */
+    @Override
+    public NDArray norm(boolean keepDims) {
+        // We have to flatten first to be able to simulate "numpy.linalg.norm" whenever axis isn't
+        // specified
+        if (dataType == DataType.FLOAT64) {
+            throw new UnsupportedOperationException("float64 is not supported");
+        }
+        TfNDArray flattenTensor = (TfNDArray) flatten();
+        try (Tensor<?> tensor =
+                tf.linalg.euclideanNorm(flattenTensor.getOperand(), tf.constant(0)).asTensor()) {
+            // close the temp NDArray
+            flattenTensor.close();
+            if (!keepDims) {
+                return new TfNDArray(manager, tensor);
+            } else {
+                float number = tensor.rawData().asFloats().getFloat(0);
+                // Keeping dimensions but with shape 1
+                long[] shapes = LongStream.generate(() -> 1).limit(shape.dimension()).toArray();
+                return manager.create(new float[] {number}, new Shape(shapes));
+            }
+        }
+    }
+
+    /** {@inheritDoc} */
+    @Override
+    public NDArray norm(int ord, int[] axes, boolean keepDims) {
+        if (ord != 2) {
+            throw new UnsupportedOperationException("Only ord=2 is supported");
+        }
+        try (Tensor<?> tensor =
+                tf.linalg
+                        .euclideanNorm(
+                                getOperand(), tf.constant(axes), EuclideanNorm.keepDims(keepDims))
                         .asTensor()) {
             return new TfNDArray(manager, tensor);
         }
@@ -1102,6 +1179,12 @@ public class TfNDArray implements NDArray {
 
     /** {@inheritDoc} */
     @Override
+    public NDArray rotate90(int times, int[] axes) {
+        throw new UnsupportedOperationException("Not implemented");
+    }
+
+    /** {@inheritDoc} */
+    @Override
     public NDArray trace(int offset, int axis1, int axis2) {
         throw new UnsupportedOperationException("Not implemented");
     }
@@ -1148,6 +1231,9 @@ public class TfNDArray implements NDArray {
     // TODO: remove helper once this issue is fixed:
     // https://github.com/tensorflow/java/issues/45
     private NDList splitHelper(long[] indices, int axis) {
+        if (indices.length == 0) {
+            return new NDList(this);
+        }
         NDList result = new NDList();
 
         List<Long> sizes = new ArrayList<>();
@@ -1556,6 +1642,7 @@ public class TfNDArray implements NDArray {
         }
     }
 
+    /** {@inheritDoc} */
     @Override
     public NDArray flip(int... axes) {
         try (Tensor<?> tensor = tf.reverse(getOperand(), tf.constant(axes)).asTensor()) {
@@ -1749,8 +1836,8 @@ public class TfNDArray implements NDArray {
         return getConstant(n, jType, tf);
     }
 
-    public static org.tensorflow.tools.Shape toTfShape(Shape shape) {
-        return org.tensorflow.tools.Shape.of(shape.getShape());
+    public static org.tensorflow.ndarray.Shape toTfShape(Shape shape) {
+        return org.tensorflow.ndarray.Shape.of(shape.getShape());
     }
 
     public static ByteDataBuffer toDataBuffer(FloatBuffer buffer) {

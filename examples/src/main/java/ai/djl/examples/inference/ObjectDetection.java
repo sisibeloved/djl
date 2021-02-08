@@ -28,8 +28,6 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -54,12 +52,12 @@ public final class ObjectDetection {
     public static DetectedObjects predict() throws IOException, ModelException, TranslateException {
         Path imageFile = Paths.get("src/test/resources/dog_bike_car.jpg");
         Image img = ImageFactory.getInstance().fromFile(imageFile);
-        String backbone = "resnet50";
-        Map<String, Object> options = null;
+
+        String backbone;
         if ("TensorFlow".equals(Engine.getInstance().getEngineName())) {
             backbone = "mobilenet_v2";
-            options = new ConcurrentHashMap<>();
-            options.put("Tags", new String[] {});
+        } else {
+            backbone = "resnet50";
         }
 
         Criteria<Image, DetectedObjects> criteria =
@@ -67,7 +65,6 @@ public final class ObjectDetection {
                         .optApplication(Application.CV.OBJECT_DETECTION)
                         .setTypes(Image.class, DetectedObjects.class)
                         .optFilter("backbone", backbone)
-                        .optOptions(options)
                         .optProgress(new ProgressBar())
                         .build();
 

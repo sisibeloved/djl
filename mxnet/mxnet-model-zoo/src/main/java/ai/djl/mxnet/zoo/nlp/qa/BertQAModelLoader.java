@@ -15,6 +15,7 @@ package ai.djl.mxnet.zoo.nlp.qa;
 import ai.djl.Application;
 import ai.djl.Device;
 import ai.djl.MalformedModelException;
+import ai.djl.Model;
 import ai.djl.modality.nlp.qa.QAInput;
 import ai.djl.mxnet.zoo.MxModelZoo;
 import ai.djl.repository.MRL;
@@ -41,7 +42,7 @@ import java.util.Map;
  *
  * @see ai.djl.mxnet.engine.MxSymbolBlock
  */
-public class BertQAModelLoader extends BaseModelLoader<QAInput, String> {
+public class BertQAModelLoader extends BaseModelLoader {
 
     private static final Application APPLICATION = Application.NLP.QUESTION_ANSWER;
     private static final String GROUP_ID = MxModelZoo.GROUP_ID;
@@ -69,7 +70,6 @@ public class BertQAModelLoader extends BaseModelLoader<QAInput, String> {
      * @throws ModelNotFoundException if no model with the specified criteria is found
      * @throws MalformedModelException if the model data is malformed
      */
-    @Override
     public ZooModel<QAInput, String> loadModel(
             Map<String, String> filters, Device device, Progress progress)
             throws IOException, ModelNotFoundException, MalformedModelException {
@@ -83,18 +83,19 @@ public class BertQAModelLoader extends BaseModelLoader<QAInput, String> {
         return loadModel(criteria);
     }
 
-    /** {@inheritDoc} */
-    @Override
-    public Application getApplication() {
-        return APPLICATION;
-    }
-
     private static final class FactoryImpl implements TranslatorFactory<QAInput, String> {
 
         /** {@inheritDoc} */
         @Override
-        public Translator<QAInput, String> newInstance(Map<String, Object> arguments) {
-            int seqLength = (int) arguments.getOrDefault("seqLength", 384);
+        public Translator<QAInput, String> newInstance(Model model, Map<String, ?> arguments) {
+            int seqLength;
+            Object value = arguments.get("seqLength");
+            if (value == null) {
+                seqLength = 384;
+            } else {
+                seqLength = Integer.parseInt(value.toString());
+            }
+
             return MxBertQATranslator.builder().setSeqLength(seqLength).build();
         }
     }

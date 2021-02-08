@@ -148,7 +148,9 @@ public class NDIndexTest {
     public void testSetScalar() {
         try (NDManager manager = NDManager.newBaseManager()) {
             NDArray original = manager.create(new float[] {1, 2, 3, 4}, new Shape(2, 2));
+            NDArray expected = manager.create(new float[] {0, 2, 3, 4}, new Shape(2, 2));
             original.setScalar(new NDIndex(0, 0), 0);
+            Assert.assertEquals(original, expected);
             original.setScalar(new NDIndex(0), 1);
         }
     }
@@ -167,6 +169,16 @@ public class NDIndexTest {
             index = new NDIndex("... , 1");
             original.set(index, nd -> nd.add(5));
             Assert.assertEquals(original.get(index), expected);
+        }
+    }
+
+    @Test
+    public void testSetByFunctionIncrements() {
+        try (NDManager manager = NDManager.newBaseManager()) {
+            NDArray original = manager.ones(new Shape(1, 5));
+            original.set(new NDIndex(":, 0::2"), array -> array.mul(-1).add(1));
+            NDArray expected = manager.create(new float[][] {{0, 1, 0, 1, 0}});
+            Assert.assertEquals(original, expected);
         }
     }
 }

@@ -66,19 +66,12 @@ public class ParameterStore {
 
     /** Updates all the mirrored parameters. */
     public void updateAllParameters() {
-        int priority = 0;
         for (Map.Entry<String, ParameterData> entry : parameterMap.entrySet()) {
             String parameterId = entry.getKey();
             ParameterData data = entry.getValue();
             if (data.requireGradient()) {
-                NDArray[] grads =
-                        data.getNDArrays()
-                                .stream()
-                                .map(NDArray::getGradient)
-                                .toArray(NDArray[]::new);
-                NDArray[] values = data.toArray();
-                parameterServer.update(parameterId, grads, values, -priority);
-                ++priority;
+                NDArray[] params = data.toArray();
+                parameterServer.update(parameterId, params);
             }
         }
     }
@@ -88,9 +81,10 @@ public class ParameterStore {
      *
      * @param parameter the parameter to get the value for
      * @param device the device to get the mirror from
+     * @param training true for a training forward pass
      * @return the value of the mirrored parameter on the device
      */
-    public NDArray getValue(Parameter parameter, Device device) {
+    public NDArray getValue(Parameter parameter, Device device, boolean training) {
         // for those optional parameters, they might not be in the ParameterStore
         if (parameter == null) {
             return null;
@@ -129,7 +123,7 @@ public class ParameterStore {
                     array.attach(manager);
                     // some parameter doesn't require grad
                     // for example running_mean in BatchNorm
-                    if (parameter.requireGradient()) {
+                    if (parameter.requireGradient() && training) {
                         array.attachGradient();
                     }
                 }
@@ -138,6 +132,15 @@ public class ParameterStore {
         }
 
         return data.get(index);
+    }
+
+    /**
+     * Get the {@link NDManager} associated with {@code ParameterStore}.
+     *
+     * @return the {@link NDManager}
+     */
+    public NDManager getManager() {
+        return manager;
     }
 
     /** Synchronizes the values on all mirrors with the main parameter. */

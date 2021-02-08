@@ -13,17 +13,22 @@
 package ai.djl.training.dataset;
 
 import ai.djl.Device;
+import ai.djl.ndarray.NDArray;
+import ai.djl.ndarray.NDArrays;
+import ai.djl.ndarray.NDList;
 import ai.djl.ndarray.NDManager;
 import ai.djl.translate.Batchifier;
 import ai.djl.translate.Pipeline;
 import ai.djl.translate.Transform;
 import ai.djl.translate.TranslateException;
+import ai.djl.util.Pair;
 import ai.djl.util.Progress;
 import ai.djl.util.RandomUtils;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.Objects;
 import java.util.concurrent.ExecutorService;
+import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
 /**
@@ -70,7 +75,7 @@ public abstract class RandomAccessDataset implements Dataset {
      * @return a {@link Record} that contains the data and label of the requested data item
      * @throws IOException if an I/O error occurs
      */
-    protected abstract Record get(NDManager manager, long index) throws IOException;
+    public abstract Record get(NDManager manager, long index) throws IOException;
 
     /** {@inheritDoc} */
     @Override
@@ -155,10 +160,63 @@ public abstract class RandomAccessDataset implements Dataset {
         for (int i = 0; i < ratio.length - 1; ++i) {
             int to = from + (int) (ratio[i] / sum * size);
             ret[i] = new SubDataset(this, indices, from, to);
-            from += to;
+            from = to;
         }
         ret[ratio.length - 1] = new SubDataset(this, indices, from, size);
         return ret;
+    }
+
+    /**
+     * Returns a view of the portion of this data between the specified {@code fromIndex},
+     * inclusive, and {@code toIndex}, exclusive.
+     *
+     * @param fromIndex low endpoint (inclusive) of the subDataset
+     * @param toIndex high endpoint (exclusive) of the subData
+     * @return a view of the specified range within this dataset
+     */
+    public RandomAccessDataset subDataset(int fromIndex, int toIndex) {
+        int size = Math.toIntExact(size());
+        int[] indices = IntStream.range(0, size).toArray();
+        return new SubDataset(this, indices, fromIndex, toIndex);
+    }
+
+    /**
+     * Returns the dataset contents as a Java array.
+     *
+     * <p>Each Number[] is a flattened dataset record and the Number[][] is the array of all
+     * records.
+     *
+     * @return the dataset contents as a Java array
+     * @throws IOException for various exceptions depending on the dataset
+     * @throws TranslateException if there is an error while processing input
+     */
+    public Pair<Number[][], Number[][]> toArray() throws IOException, TranslateException {
+        try (NDManager manager = NDManager.newBaseManager()) {
+            Sampler sampl = new BatchSampler(new SequenceSampler(), 1, false);
+            int size = Math.toIntExact(size());
+            Number[][] data = new Number[size][];
+            Number[][] labels = new Number[size][];
+            int index = 0;
+            for (Batch batch : this.getData(manager, sampl)) {
+                data[index] = flattenRecord(batch.getData());
+                labels[index] = flattenRecord(batch.getLabels());
+                batch.close();
+                index++;
+            }
+            return new Pair<>(data, labels);
+        }
+    }
+
+    private Number[] flattenRecord(NDList data) {
+        NDList flattened =
+                new NDList(data.stream().map(NDArray::flatten).collect(Collectors.toList()));
+        if (flattened.size() == 0) {
+            return null;
+        }
+        if (flattened.size() == 1) {
+            return flattened.get(0).toArray();
+        }
+        return NDArrays.concat(flattened).toArray();
     }
 
     private static void swap(int[] arr, int i, int j) {
@@ -168,8 +226,7 @@ public abstract class RandomAccessDataset implements Dataset {
     }
 
     /** The Builder to construct a {@link RandomAccessDataset}. */
-    @SuppressWarnings("rawtypes")
-    public abstract static class BaseBuilder<T extends BaseBuilder> {
+    public abstract static class BaseBuilder<T extends BaseBuilder<T>> {
 
         protected Sampler sampler;
         protected Batchifier dataBatchifier = Batchifier.STACK;
@@ -364,6 +421,16 @@ public abstract class RandomAccessDataset implements Dataset {
             this.indices = indices;
             this.from = from;
             this.to = to;
+            this.sampler = dataset.sampler;
+            this.dataBatchifier = dataset.dataBatchifier;
+            this.labelBatchifier = dataset.labelBatchifier;
+            this.pipeline = dataset.pipeline;
+            this.targetPipeline = dataset.targetPipeline;
+            this.executor = dataset.executor;
+            this.prefetchNumber = dataset.prefetchNumber;
+            this.device = dataset.device;
+
+            limit = Long.MAX_VALUE;
         }
 
         /** {@inheritDoc} */
@@ -379,12 +446,6 @@ public abstract class RandomAccessDataset implements Dataset {
         @Override
         protected long availableSize() {
             return to - from;
-        }
-
-        /** {@inheritDoc} */
-        @Override
-        public Iterable<Batch> getData(NDManager manager) throws IOException, TranslateException {
-            return dataset.getData(manager);
         }
 
         /** {@inheritDoc} */

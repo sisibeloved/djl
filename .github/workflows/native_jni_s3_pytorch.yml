@@ -1,0 +1,183 @@
+name: Native JNI S3 PyTorch
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron:  '0 5 * * *'
+
+jobs:
+  build-pytorch-jni-cpu:
+    if: github.repository == 'awslabs/djl'
+    runs-on: ${{ matrix.operating-system }}
+    strategy:
+      matrix:
+        operating-system: [macos-latest, ubuntu-16.04, windows-latest]
+        include:
+          - operating-system: macos-latest
+            os: osx
+          - operating-system: ubuntu-16.04
+            os: linux
+          - operating-system: windows-latest
+            os: win
+    steps:
+      - uses: actions/checkout@v1
+      - name: Set up JDK 1.8
+        uses: actions/setup-java@v1
+        with:
+          java-version: 1.8
+      - uses: actions/cache@v1
+        with:
+          path: ~/.gradle/caches
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+      - name: Workaround for startup run
+        run: ./gradlew jar clean
+      - name: Release JNI prep
+        run: ./gradlew :pytorch:pytorch-native:compileJNI
+      - name: Test with Gradle
+        run: ./gradlew :integration:test "-Dai.djl.default_engine=PyTorch"
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-2
+      - name: Copy files to S3 with the AWS CLI
+        run: |
+          aws s3 cp pytorch/pytorch-native/build/*djl_torch.* s3://djl-ai/publish/pytorch-1.7.1/jnilib/0.10.0/${{ matrix.os }}-x86_64/cpu/
+          aws cloudfront create-invalidation --distribution-id E371VB8JQ6NRVY --paths "/pytorch-1.7.1/jnilib*"
+
+  build-pytorch-jni-linux-gpu:
+    if: github.repository == 'awslabs/djl'
+    runs-on: ubuntu-latest
+    container: nvidia/cuda:10.1-cudnn7-devel-ubuntu16.04
+    steps:
+      - uses: actions/checkout@v1
+      - name: Set up JDK 1.8
+        uses: actions/setup-java@v1
+        with:
+          java-version: 1.8
+      - uses: actions/cache@v1
+        with:
+          path: ~/.gradle/caches
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+      - name: Install Environment
+        run: |
+          apt update
+          apt install -y cmake curl unzip software-properties-common
+          add-apt-repository -y ppa:deadsnakes/ppa
+          apt update
+          apt install -y python3.6
+          curl -O https://bootstrap.pypa.io/get-pip.py
+          python3.6 get-pip.py
+          pip3 install awscli --upgrade
+      - name: Release JNI prep
+        run: ./gradlew :pytorch:pytorch-native:releaseJNI -Pgpu
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-2
+      - name: Copy files to S3 with the AWS CLI
+        run: |
+          aws s3 sync pytorch/pytorch-native/jnilib s3://djl-ai/publish/pytorch-1.7.1/jnilib
+          aws cloudfront create-invalidation --distribution-id E371VB8JQ6NRVY --paths "/pytorch-1.7.1/jnilib*"
+
+  build-pytorch-jni-precxx11:
+    if: github.repository == 'awslabs/djl'
+    runs-on: ubuntu-latest
+    container: nvidia/cuda:10.1-cudnn7-devel-centos7
+    steps:
+      - uses: actions/checkout@v1
+      - name: Set up JDK 1.8
+        uses: actions/setup-java@v1
+        with:
+          java-version: 1.8
+      - uses: actions/cache@v1
+        with:
+          path: ~/.gradle/caches
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+      - name: Install Environment
+        run: |
+          yum -y update
+          yum -y install centos-release-scl-rh epel-release
+          yum -y install java-1.8.0-openjdk-devel devtoolset-7 rh-git218 patch cmake3
+          ln -s /usr/bin/cmake3 /usr/bin/cmake
+          pip3 install awscli --upgrade
+      - name: Release JNI prep
+        run: |
+          source scl_source enable devtoolset-7 rh-git218 || true
+          ./gradlew :pytorch:pytorch-native:releaseJNI -Pprecxx11
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-2
+      - name: Copy files to S3 with the AWS CLI
+        run: |
+          aws s3 sync pytorch/pytorch-native/jnilib s3://djl-ai/publish/pytorch-1.7.1/jnilib/precxx11
+          aws cloudfront create-invalidation --distribution-id E371VB8JQ6NRVY --paths "/pytorch-1.7.1/jnilib/precxx11*"
+
+  build-pytorch-jni-windows-gpu:
+    if: github.repository == 'awslabs/djl'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v1
+      - name: Set up JDK 1.8
+        uses: actions/setup-java@v1
+        with:
+          java-version: 1.8
+      - uses: actions/cache@v1
+        with:
+          path: ~/.gradle/caches
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+      - name: Remove unused stuff to save disk space
+        shell: cmd
+        run: rm.exe -Rf "C:\Program Files (x86)\Android" "C:\Program Files\dotnet" "%CONDA%" "%GOROOT_1_10_X64%" "%GOROOT_1_11_X64%" "%GOROOT_1_12_X64%" "%GOROOT_1_13_X64%" "C:\hostedtoolcache\windows\Ruby" "C:\Rust"
+      - name: Instal CUDA
+        shell: cmd
+        run: |
+          curl.exe -L http://developer.download.nvidia.com/compute/cuda/10.1/Prod/local_installers/cuda_10.1.243_426.00_windows.exe -o cuda.exe
+          curl.exe -L http://developer.download.nvidia.com/compute/cuda/10.2/Prod/local_installers/cuda_10.2.89_441.22_windows.exe -o cuda102.exe
+          curl.exe -L https://developer.download.nvidia.com/compute/redist/cudnn/v7.6.4/cudnn-10.1-windows7-x64-v7.6.4.38.zip -o cudnn.zip
+          cuda102.exe -s
+          cuda.exe -s
+          mkdir cuda
+          unzip.exe cudnn.zip
+          cp.exe -a cuda/include cuda/lib cuda/bin "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v10.1/"
+          cp.exe -a cuda/include cuda/lib cuda/bin "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v10.2/"
+          rm.exe -Rf cuda102.exe cuda.exe cudnn.zip cuda
+      - name: Install CUDA 11
+        shell: cmd
+        run: |
+          curl.exe -L http://developer.download.nvidia.com/compute/cuda/11.0.2/local_installers/cuda_11.0.2_451.48_win10.exe -o cuda.exe
+          cuda.exe -s
+      - name: Release JNI
+        shell: cmd
+        run: |
+          call "C:\Program Files (x86)\Microsoft Visual Studio\2019\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" amd64
+          set "CUDA_PATH=%ProgramFiles%\NVIDIA GPU Computing Toolkit\CUDA\v10.2"
+          set "CUDA_PATH_V10_2=%ProgramFiles%\NVIDIA GPU Computing Toolkit\CUDA\v10.2"
+          set "CUDA_PATH_V10_1=%ProgramFiles%\NVIDIA GPU Computing Toolkit\CUDA\v10.1"
+          set "CUDA_PATH_V11_0=%ProgramFiles%\NVIDIA GPU Computing Toolkit\CUDA\v11.0"
+          set "PATH=%ProgramFiles%\NVIDIA GPU Computing Toolkit\CUDA\v10.1\bin;%ProgramFiles%\NVIDIA GPU Computing Toolkit\CUDA\v10.1\libnvvp;%PATH%"
+          gradlew :pytorch:pytorch-native:releaseJNI -Pgpu
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-2
+      - name: Copy files to S3 with the AWS CLI
+        run: |
+          aws s3 sync pytorch/pytorch-native/jnilib s3://djl-ai/publish/pytorch-1.7.1/jnilib
+          aws cloudfront create-invalidation --distribution-id E371VB8JQ6NRVY --paths "/pytorch-1.7.1/jnilib*"

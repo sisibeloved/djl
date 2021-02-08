@@ -4,15 +4,19 @@ Deep Java Library (DJL) is designed to be easy to get started with and simple to
 The easiest way to learn DJL is to read the [beginner tutorial](../jupyter/tutorial/README.md) or
 our [examples](../examples/README.md).
 
+<iframe width="560" height="315" src="https://www.youtube.com/embed/EyB4gBECaNU" frameborder="0" allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
+
 ## Prerequisites
 
 * You need a Java Development Kit (JDK) installed on your system. We recommend using JDK 8, but any later version also works. For more information, see [Setup](development/setup.md).
 * You need git installed on your system to clone the DJL repository.
 
-## Get source code
+## Try DJL
 
-We try our best to maintain a stable master branch. If you experience issues with the master branch, use the latest 
-[stable release](https://github.com/awslabs/djl/releases/latest).
+We developed several interactive toolkits for you to experience DJL.
+You can start from here to run inference online and download starter template with DJL.
+
+See [DJL Future Labs](interactive_tool.md)
 
 ## Beginner tutorial
 
